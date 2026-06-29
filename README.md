@@ -65,6 +65,14 @@ research queries.
 - [Governance](GOVERNANCE.md)
 - [Security](SECURITY.md)
 
+The `od4a` CLI currently supports local validation and package inspection
+commands:
+
+```bash
+od4a validate
+od4a inspect examples/minimal-package
+```
+
 ## License
 
 Code is licensed under Apache-2.0. Dataset releases, examples, schemas, docs,
