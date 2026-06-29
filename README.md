@@ -55,6 +55,7 @@ research queries.
 ## Documentation
 
 - [Architecture](docs/architecture.md)
+- [CLI](docs/cli.md)
 - [Privacy Model](docs/privacy-model.md)
 - [Consent Model](docs/consent-model.md)
 - [Adapter Strategy](docs/adapter-strategy.md)

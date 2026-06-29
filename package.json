@@ -4,6 +4,9 @@
   "private": true,
   "description": "Local-first toolkit for voluntary AI interaction data donation.",
   "license": "Apache-2.0",
+  "bin": {
+    "od4a": "./bin/od4a.mjs"
+  },
   "scripts": {
     "validate": "npm run validate:schemas && npm run validate:examples",
     "validate:schemas": "node scripts/check-schemas.mjs",
