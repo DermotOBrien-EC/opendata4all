@@ -10,6 +10,7 @@ project's validation surface before any adapter or packaging workflow is added.
 - `od4a validate-examples`
 - `od4a init [package-dir]`
 - `od4a import <source-jsonl> [package-dir]`
+- `od4a export [package-dir] [output-jsonl]`
 - `od4a inspect [package-dir]`
 - `od4a help`
 
@@ -20,10 +21,11 @@ project's validation surface before any adapter or packaging workflow is added.
   placeholder files.
 - `import` validates and copies a local JSONL source file into a package data
   directory.
+- `export` copies the canonical JSONL file back out to stdout or a local file.
 - `inspect` reads an OD4A package manifest from the current directory or a
   relative package directory and prints a summary without opening any network
   connection.
 - The initial CLI does not publish, upload, or connect to external services.
 - All output should remain free of raw donated data.
-- Future commands such as `inspect`, `redact`, `preview`, and `package` will
-  build on the same local-first contract.
+- Future commands such as `redact`, `preview`, and `package` will build on the
+  same local-first contract.

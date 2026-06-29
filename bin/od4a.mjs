@@ -116,6 +116,28 @@ async function importJsonl(sourcePath, targetDir) {
   console.log(`Imported ${lines.length} JSONL records to ${destinationPath}`);
 }
 
+async function exportJsonl(packageDir, outputPath) {
+  const sourcePath = resolve(process.cwd(), packageDir, "data", "jsonl", "events.jsonl");
+
+  let contents;
+  try {
+    contents = await readFile(sourcePath, "utf8");
+  } catch (error) {
+    console.error(`Unable to read exported JSONL at ${sourcePath}`);
+    console.error(error.message);
+    process.exit(1);
+  }
+
+  if (outputPath) {
+    const destinationPath = resolve(process.cwd(), outputPath);
+    await writeFile(destinationPath, contents);
+    console.log(`Exported JSONL to ${destinationPath}`);
+    return;
+  }
+
+  process.stdout.write(contents);
+}
+
 async function inspectPackage(packageDir) {
   const manifestPath = resolve(process.cwd(), packageDir, "metadata", "manifest.json");
 
@@ -148,6 +170,7 @@ function printHelp() {
 Usage:
   od4a init [package-dir]
   od4a import <source-jsonl> [package-dir]
+  od4a export [package-dir] [output-jsonl]
   od4a validate
   od4a validate-schemas
   od4a validate-examples
@@ -170,6 +193,9 @@ switch (command) {
     }
     await importJsonl(args[1], args[2] ?? ".");
     break;
+  case "export":
+    await exportJsonl(args[1] ?? ".", args[2]);
+    break;
   case "validate":
     runCommand(["run", "validate"]);
     break;
@@ -179,7 +205,7 @@ switch (command) {
   case "validate-examples":
     runNodeScript(resolve(root, "scripts", "check-examples.mjs"));
     break;
-case "inspect":
+  case "inspect":
     await inspectPackage(args[1] ?? ".");
     break;
   case "help":
