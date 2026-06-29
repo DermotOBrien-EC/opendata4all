@@ -5,15 +5,16 @@ Validation is an evidence system, not proof that a dataset is safe.
 The MVP validation command is dependency-free:
 
 ```bash
-npm run validate:schemas
+npm run validate
 ```
 
-It checks that all schema files parse as JSON and that the current privacy and
-governance invariants remain represented in the schemas.
+It checks that all schema files parse as JSON, that the current privacy and
+governance invariants remain represented in the schemas, and that checked-in
+example packages are internally consistent.
 
 The CI workflow runs the same command on pull requests and pushes to `main`.
 The workflow does not require dependency installation because the validation
-script uses only the Node.js standard library.
+scripts use only the Node.js standard library.
 
 ## Current Schema Invariants
 

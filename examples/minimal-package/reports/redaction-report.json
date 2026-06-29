@@ -1,0 +1,17 @@
+{
+  "schema_version": "0.1.0",
+  "report_id": "redaction-example-001",
+  "created_at": "2026-06-29T00:00:00Z",
+  "policy_version": "example-redaction-0.1.0",
+  "input_hash": "sha256:9355444a12a2a4b6fb27be9cd3ac498e8de4836c466f4adeae0d316a3eda5d15",
+  "output_hash": "sha256:9355444a12a2a4b6fb27be9cd3ac498e8de4836c466f4adeae0d316a3eda5d15",
+  "summary": {
+    "risk_score": 0,
+    "blocked_findings": 0,
+    "redacted_findings": 0,
+    "review_required": false
+  },
+  "findings": [],
+  "decision": "publishable",
+  "notes": "Synthetic fixture contains no real personal data, secrets, or raw platform export."
+}

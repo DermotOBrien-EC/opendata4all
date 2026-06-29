@@ -5,7 +5,9 @@
   "description": "Local-first toolkit for voluntary AI interaction data donation.",
   "license": "Apache-2.0",
   "scripts": {
-    "validate:schemas": "node scripts/check-schemas.mjs"
+    "validate": "npm run validate:schemas && npm run validate:examples",
+    "validate:schemas": "node scripts/check-schemas.mjs",
+    "validate:examples": "node scripts/check-examples.mjs"
   },
   "engines": {
     "node": ">=20"

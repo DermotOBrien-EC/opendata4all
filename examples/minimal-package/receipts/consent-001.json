@@ -1,0 +1,53 @@
+{
+  "schema_version": "0.1.0",
+  "receipt_id": "consent-example-001",
+  "created_at": "2026-06-29T00:00:00Z",
+  "notice_version": "example-notice-0.1.0",
+  "controller": {
+    "name": "opendata4all example fixtures",
+    "contact": "privacy@example.invalid",
+    "jurisdiction": "example"
+  },
+  "source_scope": {
+    "sources": [
+      "manual synthetic fixture"
+    ],
+    "adapters": [
+      {
+        "name": "od4a-manual-jsonl-example",
+        "version": "0.1.0",
+        "capture_method": "manual_import"
+      }
+    ],
+    "project_scope": [
+      "examples/minimal-package"
+    ],
+    "time_scope": {
+      "mode": "one_time"
+    }
+  },
+  "data_classes": [
+    "synthetic_user_prompt",
+    "synthetic_assistant_response",
+    "tool_metadata"
+  ],
+  "purposes": [
+    "schema_validation_fixture",
+    "public_documentation"
+  ],
+  "recipient_classes": [
+    "public"
+  ],
+  "release_tier": "public_release",
+  "redaction_policy_version": "example-redaction-0.1.0",
+  "package_manifest_hash": "sha256:55f1efb9c751a4b01b125c4c862a947bfb5b70bc4d8484a9003b53876e6e9cf7",
+  "retention": {
+    "class": "fixed_period",
+    "expires_at": "2027-06-29T00:00:00Z"
+  },
+  "withdrawal": {
+    "method": "email",
+    "email": "privacy@example.invalid"
+  },
+  "status": "active"
+}

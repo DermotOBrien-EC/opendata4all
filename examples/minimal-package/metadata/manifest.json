@@ -1,0 +1,44 @@
+{
+  "schema_version": "0.1.0",
+  "package_id": "od4a-example-minimal",
+  "version": "0.1.0",
+  "release_tier": "public_release",
+  "created_at": "2026-06-29T00:00:00Z",
+  "publisher": {
+    "name": "opendata4all example fixtures",
+    "contact": "privacy@example.invalid"
+  },
+  "license": {
+    "id": "CDLA-Permissive-2.0",
+    "url": "https://cdla.dev/permissive-2-0/"
+  },
+  "source_adapters": [
+    {
+      "name": "od4a-manual-jsonl-example",
+      "version": "0.1.0",
+      "capture_method": "manual_import"
+    }
+  ],
+  "files": [
+    {
+      "path": "data/jsonl/events.jsonl",
+      "media_type": "application/jsonl",
+      "sha256": "sha256:9355444a12a2a4b6fb27be9cd3ac498e8de4836c466f4adeae0d316a3eda5d15",
+      "bytes": 987,
+      "row_count": 1,
+      "schema_id": "https://opendata4all.org/schemas/interaction-event.schema.json",
+      "contains_raw_data": false
+    }
+  ],
+  "consent_receipts": [
+    "receipts/consent-001.json"
+  ],
+  "redaction_reports": [
+    "reports/redaction-report.json"
+  ],
+  "validation": {
+    "status": "passed",
+    "checked_at": "2026-06-29T00:00:00Z",
+    "notes": "Synthetic public-safe example fixture."
+  }
+}
