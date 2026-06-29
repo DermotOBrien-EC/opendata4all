@@ -59,6 +59,7 @@ research queries.
 - [Consent Model](docs/consent-model.md)
 - [Adapter Strategy](docs/adapter-strategy.md)
 - [Dataset Package Specification](docs/dataset-package-spec.md)
+- [Validation](docs/validation.md)
 - [MVP Roadmap](docs/mvp-roadmap.md)
 - [Governance](GOVERNANCE.md)
 - [Security](SECURITY.md)

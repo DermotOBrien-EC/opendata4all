@@ -1,0 +1,13 @@
+{
+  "name": "opendata4all",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local-first toolkit for voluntary AI interaction data donation.",
+  "license": "Apache-2.0",
+  "scripts": {
+    "validate:schemas": "node scripts/check-schemas.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
