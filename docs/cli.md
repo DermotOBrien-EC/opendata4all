@@ -8,12 +8,15 @@ project's validation surface before any adapter or packaging workflow is added.
 - `od4a validate`
 - `od4a validate-schemas`
 - `od4a validate-examples`
+- `od4a init [package-dir]`
 - `od4a inspect [package-dir]`
 - `od4a help`
 
 ## Behavior
 
 - Validation runs locally.
+- `init` creates a local package scaffold with package subdirectories and
+  placeholder files.
 - `inspect` reads an OD4A package manifest from the current directory or a
   relative package directory and prints a summary without opening any network
   connection.

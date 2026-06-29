@@ -69,6 +69,7 @@ The `od4a` CLI currently supports local validation and package inspection
 commands:
 
 ```bash
+od4a init od4a-package
 od4a validate
 od4a inspect examples/minimal-package
 ```

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { readFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
@@ -37,6 +37,49 @@ function runCommand(commandArgs) {
   process.exit(result.status ?? 1);
 }
 
+async function initPackage(packageDir) {
+  const target = resolve(process.cwd(), packageDir);
+
+  try {
+    const entries = await readdir(target);
+    if (entries.length > 0) {
+      console.error(`Refusing to initialize non-empty directory: ${target}`);
+      process.exit(1);
+    }
+  } catch (error) {
+    if (error.code !== "ENOENT") {
+      throw error;
+    }
+  }
+
+  await mkdir(resolve(target, "data", "jsonl"), { recursive: true });
+  await mkdir(resolve(target, "metadata"), { recursive: true });
+  await mkdir(resolve(target, "receipts"), { recursive: true });
+  await mkdir(resolve(target, "reports"), { recursive: true });
+  await mkdir(resolve(target, "signatures"), { recursive: true });
+
+  await writeFile(
+    resolve(target, "README.md"),
+    [
+      "# OD4A Package",
+      "",
+      "This directory was initialized by od4a init.",
+      "It is a local scaffold and does not yet contain a release manifest.",
+      "",
+    ].join("\n"),
+  );
+
+  for (const relativePath of [
+    ["data", "jsonl", ".gitkeep"],
+    ["metadata", ".gitkeep"],
+    ["receipts", ".gitkeep"],
+    ["reports", ".gitkeep"],
+    ["signatures", ".gitkeep"],
+  ]) {
+    await writeFile(resolve(target, ...relativePath), "");
+  }
+}
+
 async function inspectPackage(packageDir) {
   const manifestPath = resolve(process.cwd(), packageDir, "metadata", "manifest.json");
 
@@ -67,6 +110,7 @@ function printHelp() {
   console.log(`opendata4all
 
 Usage:
+  od4a init [package-dir]
   od4a validate
   od4a validate-schemas
   od4a validate-examples
@@ -79,6 +123,9 @@ validation, example checks, and manifest inspection.
 }
 
 switch (command) {
+  case "init":
+    await initPackage(args[1] ?? "od4a-package");
+    break;
   case "validate":
     runCommand(["run", "validate"]);
     break;
