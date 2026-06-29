@@ -11,6 +11,10 @@ npm run validate:schemas
 It checks that all schema files parse as JSON and that the current privacy and
 governance invariants remain represented in the schemas.
 
+The CI workflow runs the same command on pull requests and pushes to `main`.
+The workflow does not require dependency installation because the validation
+script uses only the Node.js standard library.
+
 ## Current Schema Invariants
 
 - Consent receipts require source adapters with names and versions.
