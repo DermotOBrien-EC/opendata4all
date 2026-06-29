@@ -1,0 +1,374 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://opendata4all.org/schemas/consent-receipt.schema.json",
+  "title": "OD4A Consent Receipt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "receipt_id",
+    "created_at",
+    "notice_version",
+    "controller",
+    "source_scope",
+    "data_classes",
+    "purposes",
+    "recipient_classes",
+    "release_tier",
+    "retention",
+    "withdrawal",
+    "status"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "0.1.0"
+    },
+    "receipt_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "notice_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "controller": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "contact"],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "contact": {
+          "type": "string"
+        },
+        "jurisdiction": {
+          "type": "string"
+        }
+      }
+    },
+    "source_scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sources", "adapters", "time_scope"],
+      "properties": {
+        "sources": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "adapters": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/adapter_metadata"
+          }
+        },
+        "project_scope": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        },
+        "time_scope": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode"],
+          "properties": {
+            "from": {
+              "type": ["string", "null"],
+              "format": "date-time"
+            },
+            "to": {
+              "type": ["string", "null"],
+              "format": "date-time"
+            },
+            "mode": {
+              "enum": ["one_time", "fixed_range", "rolling_with_expiry"]
+            },
+            "expires_at": {
+              "type": ["string", "null"],
+              "format": "date-time"
+            }
+          },
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "mode": {
+                    "const": "fixed_range"
+                  }
+                },
+                "required": ["mode"]
+              },
+              "then": {
+                "required": ["from", "to"],
+                "properties": {
+                  "from": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "to": {
+                    "type": "string",
+                    "format": "date-time"
+                  }
+                }
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "mode": {
+                    "const": "rolling_with_expiry"
+                  }
+                },
+                "required": ["mode"]
+              },
+              "then": {
+                "anyOf": [
+                  {
+                    "required": ["expires_at"],
+                    "properties": {
+                      "expires_at": {
+                        "type": "string",
+                        "format": "date-time"
+                      }
+                    }
+                  },
+                  {
+                    "required": ["from", "to"],
+                    "properties": {
+                      "from": {
+                        "type": "string",
+                        "format": "date-time"
+                      },
+                      "to": {
+                        "type": "string",
+                        "format": "date-time"
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    },
+    "data_classes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "purposes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "recipient_classes": {
+      "type": "array",
+      "items": {
+        "enum": [
+          "project_steward",
+          "data_access_committee",
+          "approved_researchers",
+          "approved_processors",
+          "public",
+          "other_named_recipients"
+        ]
+      },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "release_tier": {
+      "enum": [
+        "local_review",
+        "controlled_research",
+        "public_release",
+        "reproducibility_snapshot"
+      ]
+    },
+    "redaction_policy_version": {
+      "type": "string"
+    },
+    "package_manifest_hash": {
+      "type": ["string", "null"],
+      "minLength": 1
+    },
+    "retention": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["class"],
+      "properties": {
+        "class": {
+          "enum": ["delete_after_review", "fixed_period", "until_withdrawn", "archival"]
+        },
+        "expires_at": {
+          "type": ["string", "null"],
+          "format": "date-time"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "class": {
+                "const": "fixed_period"
+              }
+            },
+            "required": ["class"]
+          },
+          "then": {
+            "required": ["expires_at"],
+            "properties": {
+              "expires_at": {
+                "type": "string",
+                "format": "date-time"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "withdrawal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["method"],
+      "properties": {
+        "method": {
+          "type": "string",
+          "minLength": 1
+        },
+        "url": {
+          "type": "string",
+          "minLength": 1
+        },
+        "email": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "status": {
+      "enum": ["draft", "active", "withdrawn", "deleted", "expired", "superseded"]
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "draft"
+          }
+        },
+        "required": ["status"]
+      },
+      "then": true,
+      "else": {
+        "required": ["package_manifest_hash"],
+        "properties": {
+          "package_manifest_hash": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "draft"
+          }
+        },
+        "required": ["status"]
+      },
+      "then": true,
+      "else": {
+        "properties": {
+          "withdrawal": {
+            "anyOf": [
+              {
+                "required": ["url"]
+              },
+              {
+                "required": ["email"]
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "source_scope": {
+            "properties": {
+              "time_scope": {
+                "properties": {
+                  "mode": {
+                    "const": "one_time"
+                  }
+                },
+                "required": ["mode"]
+              }
+            },
+            "required": ["time_scope"]
+          }
+        },
+        "required": ["source_scope"]
+      },
+      "then": {
+        "required": ["package_manifest_hash"],
+        "properties": {
+          "package_manifest_hash": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "adapter_metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "capture_method": {
+          "enum": [
+            "native_api",
+            "documented_hook",
+            "structured_cli",
+            "user_export",
+            "manual_import",
+            "mcp_proxy",
+            "other_documented"
+          ]
+        }
+      }
+    }
+  }
+}

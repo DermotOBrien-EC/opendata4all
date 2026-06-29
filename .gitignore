@@ -1,0 +1,34 @@
+# Local artifacts
+.DS_Store
+.env
+.env.*
+*.log
+
+# Python
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.venv/
+dist/
+build/
+*.egg-info/
+
+# Node / frontend
+node_modules/
+.vite/
+
+# Rust / Tauri
+target/
+
+# OD4A local data
+.od4a/
+*.od4a.zip
+resources/raw/
+raw-vault/
+local-review/
+
+# Generated reports that may contain sensitive samples
+reports/*.html
+reports/*.json
+reports/*.jsonl

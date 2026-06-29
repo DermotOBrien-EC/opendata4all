@@ -1,0 +1,106 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://opendata4all.org/schemas/redaction-report.schema.json",
+  "title": "OD4A Redaction Report",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "report_id",
+    "created_at",
+    "policy_version",
+    "input_hash",
+    "output_hash",
+    "summary",
+    "findings",
+    "decision"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "0.1.0"
+    },
+    "report_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "policy_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "input_hash": {
+      "type": "string"
+    },
+    "output_hash": {
+      "type": "string"
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["risk_score", "blocked_findings", "redacted_findings"],
+      "properties": {
+        "risk_score": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "blocked_findings": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "redacted_findings": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "review_required": {
+          "type": "boolean",
+          "default": false
+        }
+      }
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["class", "action", "count"],
+        "properties": {
+          "class": {
+            "type": "string"
+          },
+          "action": {
+            "enum": [
+              "remove",
+              "mask",
+              "generalize",
+              "replace_surrogate",
+              "suppress_record",
+              "withhold",
+              "quarantine",
+              "block_export"
+            ]
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "detector": {
+            "type": "string"
+          },
+          "confidence_bucket": {
+            "enum": ["low", "medium", "high", "manual"]
+          }
+        }
+      }
+    },
+    "decision": {
+      "enum": ["publishable", "controlled_only", "review_required", "blocked"]
+    },
+    "notes": {
+      "type": "string"
+    }
+  }
+}

@@ -1,0 +1,236 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://opendata4all.org/schemas/interaction-event.schema.json",
+  "title": "OD4A Interaction Event",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "event_id",
+    "event_type",
+    "event_time",
+    "source",
+    "conversation_id",
+    "sequence",
+    "actor",
+    "consent",
+    "risk",
+    "provenance",
+    "data"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "0.1.0"
+    },
+    "event_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "event_type": {
+      "type": "string",
+      "pattern": "^org\\.opendata4all\\.[a-z0-9_]+\\.[a-z0-9_.]+$"
+    },
+    "event_time": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "observed_time": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["harness", "adapter_name", "adapter_version"],
+      "properties": {
+        "harness": {
+          "type": "string",
+          "minLength": 1
+        },
+        "harness_kind": {
+          "type": "string"
+        },
+        "harness_version": {
+          "type": "string"
+        },
+        "adapter_name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "adapter_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "capture_method": {
+          "enum": [
+            "native_api",
+            "documented_hook",
+            "structured_cli",
+            "user_export",
+            "manual_import",
+            "mcp_proxy",
+            "other_documented"
+          ]
+        }
+      }
+    },
+    "trace": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "trace_id": {
+          "type": "string"
+        },
+        "span_id": {
+          "type": "string"
+        },
+        "parent_span_id": {
+          "type": ["string", "null"]
+        },
+        "traceparent": {
+          "type": "string"
+        }
+      }
+    },
+    "conversation_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "turn_id": {
+      "type": "string"
+    },
+    "sequence": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "actor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type"],
+      "properties": {
+        "type": {
+          "enum": ["user", "assistant", "tool", "system", "reviewer", "adapter"]
+        },
+        "role": {
+          "type": "string"
+        },
+        "pseudonymous_id": {
+          "type": "string"
+        }
+      }
+    },
+    "consent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "scope", "receipt_id"],
+      "properties": {
+        "status": {
+          "enum": ["granted", "withheld", "revoked", "not_required", "unknown"]
+        },
+        "scope": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        },
+        "receipt_id": {
+          "type": "string"
+        },
+        "policy_version": {
+          "type": "string"
+        }
+      }
+    },
+    "risk": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["severity", "labels"],
+      "properties": {
+        "severity": {
+          "enum": ["none", "low", "medium", "high", "blocked"]
+        },
+        "labels": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        },
+        "score": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100
+        }
+      }
+    },
+    "redactions": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/redaction_annotation"
+      },
+      "default": []
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["raw_source_hash", "trust_level"],
+      "properties": {
+        "raw_source_hash": {
+          "type": ["string", "null"]
+        },
+        "normalization_run_id": {
+          "type": "string"
+        },
+        "trust_level": {
+          "enum": ["native", "documented", "user_supplied", "derived", "unknown"]
+        }
+      }
+    },
+    "data": {
+      "type": "object"
+    },
+    "extensions": {
+      "type": "object"
+    }
+  },
+  "$defs": {
+    "redaction_annotation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["target", "class", "action"],
+      "properties": {
+        "target": {
+          "type": "string",
+          "description": "JSON Pointer to the redacted field or span container."
+        },
+        "class": {
+          "type": "string"
+        },
+        "action": {
+          "enum": [
+            "remove",
+            "mask",
+            "generalize",
+            "replace_surrogate",
+            "suppress_record",
+            "withhold",
+            "hmac_internal"
+          ]
+        },
+        "detector": {
+          "type": "string"
+        },
+        "confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "reversible": {
+          "type": "boolean",
+          "default": false
+        }
+      }
+    }
+  }
+}
