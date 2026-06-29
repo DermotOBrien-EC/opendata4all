@@ -80,6 +80,42 @@ async function initPackage(packageDir) {
   }
 }
 
+async function importJsonl(sourcePath, targetDir) {
+  const inputPath = resolve(process.cwd(), sourcePath);
+  const packageRoot = resolve(process.cwd(), targetDir);
+  const destinationPath = resolve(packageRoot, "data", "jsonl", "events.jsonl");
+
+  let contents;
+  try {
+    contents = await readFile(inputPath, "utf8");
+  } catch (error) {
+    console.error(`Unable to read input JSONL at ${inputPath}`);
+    console.error(error.message);
+    process.exit(1);
+  }
+
+  const lines = contents.split(/\r?\n/).filter((line) => line.trim().length > 0);
+  if (lines.length === 0) {
+    console.error("Input JSONL is empty");
+    process.exit(1);
+  }
+
+  for (const [index, line] of lines.entries()) {
+    try {
+      JSON.parse(line);
+    } catch (error) {
+      console.error(`Invalid JSON on line ${index + 1} of ${inputPath}`);
+      console.error(error.message);
+      process.exit(1);
+    }
+  }
+
+  await mkdir(resolve(packageRoot, "data", "jsonl"), { recursive: true });
+  await writeFile(destinationPath, `${lines.join("\n")}\n`);
+
+  console.log(`Imported ${lines.length} JSONL records to ${destinationPath}`);
+}
+
 async function inspectPackage(packageDir) {
   const manifestPath = resolve(process.cwd(), packageDir, "metadata", "manifest.json");
 
@@ -111,6 +147,7 @@ function printHelp() {
 
 Usage:
   od4a init [package-dir]
+  od4a import <source-jsonl> [package-dir]
   od4a validate
   od4a validate-schemas
   od4a validate-examples
@@ -125,6 +162,13 @@ validation, example checks, and manifest inspection.
 switch (command) {
   case "init":
     await initPackage(args[1] ?? "od4a-package");
+    break;
+  case "import":
+    if (args.length < 2) {
+      console.error("Usage: od4a import <source-jsonl> [package-dir]");
+      process.exit(1);
+    }
+    await importJsonl(args[1], args[2] ?? ".");
     break;
   case "validate":
     runCommand(["run", "validate"]);

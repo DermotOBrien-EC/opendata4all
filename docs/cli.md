@@ -9,6 +9,7 @@ project's validation surface before any adapter or packaging workflow is added.
 - `od4a validate-schemas`
 - `od4a validate-examples`
 - `od4a init [package-dir]`
+- `od4a import <source-jsonl> [package-dir]`
 - `od4a inspect [package-dir]`
 - `od4a help`
 
@@ -17,6 +18,8 @@ project's validation surface before any adapter or packaging workflow is added.
 - Validation runs locally.
 - `init` creates a local package scaffold with package subdirectories and
   placeholder files.
+- `import` validates and copies a local JSONL source file into a package data
+  directory.
 - `inspect` reads an OD4A package manifest from the current directory or a
   relative package directory and prints a summary without opening any network
   connection.
