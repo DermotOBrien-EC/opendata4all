@@ -29,7 +29,7 @@ async function main() {
 
   const help = runCli(["help"]);
   assert(help.status === 0, "help command should succeed");
-  for (const command of ["init", "import", "export", "inspect", "report", "scan", "validate"]) {
+  for (const command of ["init", "import", "export", "inspect", "preview", "report", "scan", "validate"]) {
     assert(help.stdout.includes(`od4a ${command}`), `help should list ${command}`);
   }
 
@@ -96,6 +96,12 @@ async function main() {
   assert(secretScan.stdout.includes("secret.openai_api_key"), "scan should report the detector label");
   assert(!secretScan.stdout.includes(fakeSecret), "scan output must not echo detected secret values");
 
+  const secretPreview = runCli(["preview", packageDir]);
+  assert(secretPreview.status === 0, "preview should summarize high-risk packages");
+  assert(secretPreview.stdout.includes("Decision: blocked"), "preview should include blocked decisions");
+  assert(secretPreview.stdout.includes("secret.openai_api_key"), "preview should include detector labels");
+  assert(!secretPreview.stdout.includes(fakeSecret), "preview must not echo detected secret values");
+
   const secretReport = runCli(["report", packageDir, secretReportPath]);
   assert(secretReport.status === 0, "report should write high-risk redaction reports");
   assert(!secretReport.stdout.includes(fakeSecret), "report output must not echo detected secret values");
@@ -133,6 +139,21 @@ async function main() {
   assert(piiScan.stdout.includes("line 3: personal.email"), "scan should report physical JSONL line numbers");
   for (const rawValue of [fakeEmail, fakeUrl, fakePath, "192.0.2.10"]) {
     assert(!piiScan.stdout.includes(rawValue), "scan output must not echo personal or private values");
+  }
+
+  const piiPreview = runCli(["preview"], { cwd: packageDir });
+  assert(piiPreview.status === 0, "preview should summarize medium-risk packages");
+  assert(piiPreview.stdout.includes("Decision: review_required"), "preview should include review decisions");
+  for (const label of [
+    "personal.email",
+    "personal.ip_address",
+    "private.full_url",
+    "private.local_file_path",
+  ]) {
+    assert(piiPreview.stdout.includes(label), `preview should include ${label}`);
+  }
+  for (const rawValue of [fakeEmail, fakeUrl, fakePath, "192.0.2.10"]) {
+    assert(!piiPreview.stdout.includes(rawValue), "preview must not echo personal or private values");
   }
 
   const piiReport = runCli(["report", packageDir]);

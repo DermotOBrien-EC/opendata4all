@@ -73,6 +73,7 @@ od4a init od4a-package
 od4a import ./records.jsonl od4a-package
 od4a scan od4a-package
 od4a report od4a-package
+od4a preview od4a-package
 od4a export od4a-package
 od4a validate
 od4a inspect examples/minimal-package

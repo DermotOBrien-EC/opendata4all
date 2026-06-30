@@ -359,6 +359,32 @@ async function writeRedactionReport(packageDir, outputPath) {
   console.log(`Decision: ${report.decision}`);
 }
 
+async function previewPackage(packageDir) {
+  const analysis = await analyzePackage(packageDir);
+  const report = buildRedactionReport(analysis);
+  const groupedFindings = new Map();
+
+  for (const finding of analysis.findings) {
+    const current = groupedFindings.get(finding.label) ?? {
+      label: finding.label,
+      severity: finding.severity,
+      count: 0,
+    };
+    current.count += 1;
+    groupedFindings.set(finding.label, current);
+  }
+
+  console.log(`Package: ${resolve(process.cwd(), packageDir)}`);
+  console.log(`Records: ${analysis.recordCount}`);
+  console.log(`Findings: ${analysis.findings.length}`);
+  console.log(`Decision: ${report.decision}`);
+  console.log(`Review required: ${report.summary.review_required ? "yes" : "no"}`);
+
+  for (const finding of [...groupedFindings.values()].sort((left, right) => left.label.localeCompare(right.label))) {
+    console.log(`- ${finding.label}: ${finding.count} (${finding.severity})`);
+  }
+}
+
 async function inspectPackage(packageDir) {
   const manifestPath = resolve(process.cwd(), packageDir, "metadata", "manifest.json");
 
@@ -394,6 +420,7 @@ Usage:
   od4a export [package-dir] [output-jsonl]
   od4a scan [package-dir]
   od4a report [package-dir] [output-json]
+  od4a preview [package-dir]
   od4a validate
   od4a validate-schemas
   od4a validate-examples
@@ -402,7 +429,7 @@ Usage:
 
 Current commands are intentionally narrow. The initial CLI only performs local
 package scaffolding, JSONL import/export, risk scanning, redaction reporting,
-validation, and manifest inspection.
+preview summaries, validation, and manifest inspection.
 `);
 }
 
@@ -425,6 +452,9 @@ switch (command) {
     break;
   case "report":
     await writeRedactionReport(args[1] ?? ".", args[2]);
+    break;
+  case "preview":
+    await previewPackage(args[1] ?? ".");
     break;
   case "validate":
     runNodeScripts([

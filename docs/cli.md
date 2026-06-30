@@ -13,6 +13,7 @@ project's validation surface before any adapter or packaging workflow is added.
 - `od4a export [package-dir] [output-jsonl]`
 - `od4a scan [package-dir]`
 - `od4a report [package-dir] [output-json]`
+- `od4a preview [package-dir]`
 - `od4a inspect [package-dir]`
 - `od4a help`
 
@@ -32,6 +33,9 @@ project's validation surface before any adapter or packaging workflow is added.
 - `report` writes a schema-shaped redaction report from the same local scan
   findings. It records hashes, grouped detector classes, counts, and a release
   decision without storing raw matched values.
+- `preview` prints a local risk summary with record counts, detector classes,
+  counts, and decision state. It does not render raw transcript text or matched
+  values.
 - `inspect` reads an OD4A package manifest from the current directory or a
   relative package directory and prints a summary without opening any network
   connection.
