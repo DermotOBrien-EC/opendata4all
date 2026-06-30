@@ -224,7 +224,7 @@ async function main() {
     validate.stdout.includes("Schema version validation: passed"),
     "validate should run schema version checks",
   );
-  assert(validate.stdout.includes("Validated 3 example packages."), "validate should run example checks");
+  assert(validate.stdout.includes("Validated 4 example packages."), "validate should run example checks");
   assert(
     !validate.stdout.includes("Validated od4a CLI commands."),
     "od4a validate must not recursively invoke CLI regression checks",

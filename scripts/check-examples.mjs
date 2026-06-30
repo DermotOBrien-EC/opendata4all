@@ -6,11 +6,13 @@ const examplePackages = [
   "examples/controlled-research-package",
   "examples/minimal-package",
   "examples/public-safe-conversation-package",
+  "examples/reproducibility-snapshot-package",
 ];
 
 const redactionDecisionsByReleaseTier = new Map([
   ["public_release", new Set(["publishable"])],
   ["controlled_research", new Set(["controlled_only", "publishable"])],
+  ["reproducibility_snapshot", new Set(["publishable"])],
 ]);
 
 function readJson(path) {
@@ -268,6 +270,10 @@ assert(
 assert(
   releaseTiers.has("controlled_research"),
   "checked-in example packages must include at least one controlled_research package"
+);
+assert(
+  releaseTiers.has("reproducibility_snapshot"),
+  "checked-in example packages must include at least one reproducibility_snapshot package"
 );
 
 console.log(

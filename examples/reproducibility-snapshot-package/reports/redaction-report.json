@@ -1,0 +1,17 @@
+{
+  "schema_version": "0.1.0",
+  "report_id": "redaction-reproducibility-snapshot-001",
+  "created_at": "2026-06-30T14:00:00Z",
+  "policy_version": "example-redaction-0.1.0",
+  "input_hash": "sha256:818411a53d7ab17314ddd5895f9ab84736199e117a70801d1f2cf77f714b3623",
+  "output_hash": "sha256:818411a53d7ab17314ddd5895f9ab84736199e117a70801d1f2cf77f714b3623",
+  "summary": {
+    "risk_score": 0,
+    "blocked_findings": 0,
+    "redacted_findings": 0,
+    "review_required": false
+  },
+  "findings": [],
+  "decision": "publishable",
+  "notes": "Synthetic fixture contains no real personal data, secrets, private paths, private URLs, or raw platform export."
+}

@@ -52,13 +52,14 @@ validation scripts use only the Node.js standard library.
   passing against checked-in synthetic JSONL fixtures, including privacy canaries
   that prove private transcript paths, environment values, working directories,
   and Claude Code tool input file paths are not copied into normalized events.
-- Checked-in distributable example packages must cover both `public_release` and
-  `controlled_research` tiers and remain internally consistent, including
-  current hashes, explicit `contains_raw_data: false`, unique event IDs within
-  each JSONL file, matching adapter metadata, active consent receipts, and
-  README safety posture text that names the package ID, release tier, synthetic
-  status, no-real-donated-data status, no-secrets status, and no-private-export
-  status. Public-release redaction reports must be `publishable`; controlled
+- Checked-in distributable example packages must cover `public_release`,
+  `controlled_research`, and `reproducibility_snapshot` tiers and remain
+  internally consistent, including current hashes, explicit
+  `contains_raw_data: false`, unique event IDs within each JSONL file, matching
+  adapter metadata, active consent receipts, and README safety posture text that
+  names the package ID, release tier, synthetic status, no-real-donated-data
+  status, no-secrets status, and no-private-export status. Public-release and
+  reproducibility snapshot redaction reports must be `publishable`; controlled
   research reports must be `controlled_only` or `publishable`.
 - Checked-in redaction canary fixtures must keep exercising every current
   deterministic detector label: OpenAI-style tokens, AWS access keys, GitHub
@@ -97,6 +98,6 @@ validation scripts use only the Node.js standard library.
 ## Later Validation
 
 Later milestones should add full JSON Schema instance validation, additional
-release-tier example fixtures, broader migration-compatibility coverage, broader
+edge-case example fixtures, broader migration-compatibility coverage, broader
 redaction policy matrices, broader scanning policy checks, and signed release
 checks.

@@ -1,0 +1,44 @@
+{
+  "schema_version": "0.1.0",
+  "package_id": "od4a-example-reproducibility-snapshot",
+  "version": "0.1.0",
+  "release_tier": "reproducibility_snapshot",
+  "created_at": "2026-06-30T14:00:00Z",
+  "publisher": {
+    "name": "opendata4all example fixtures",
+    "contact": "privacy@example.invalid"
+  },
+  "license": {
+    "id": "CDLA-Permissive-2.0",
+    "url": "https://cdla.dev/permissive-2-0/"
+  },
+  "source_adapters": [
+    {
+      "name": "od4a-reproducibility-snapshot-example",
+      "version": "0.1.0",
+      "capture_method": "manual_import"
+    }
+  ],
+  "files": [
+    {
+      "path": "data/jsonl/events.jsonl",
+      "media_type": "application/jsonl",
+      "sha256": "sha256:818411a53d7ab17314ddd5895f9ab84736199e117a70801d1f2cf77f714b3623",
+      "bytes": 2264,
+      "row_count": 2,
+      "schema_id": "https://opendata4all.org/schemas/interaction-event.schema.json",
+      "contains_raw_data": false
+    }
+  ],
+  "consent_receipts": [
+    "receipts/consent-001.json"
+  ],
+  "redaction_reports": [
+    "reports/redaction-report.json"
+  ],
+  "validation": {
+    "status": "passed",
+    "checked_at": "2026-06-30T14:00:00Z",
+    "notes": "Synthetic reproducibility snapshot example fixture."
+  }
+}
