@@ -2179,6 +2179,7 @@ Usage:
   od4a withdraw-consent <receipt-json> [output-json]
   od4a validate
   od4a validate-schemas
+  od4a validate-versions
   od4a validate-examples
   od4a inspect [package-dir]
   od4a help
@@ -2264,11 +2265,15 @@ switch (command) {
   case "validate":
     runNodeScripts([
       resolve(root, "scripts", "check-schemas.mjs"),
+      resolve(root, "scripts", "check-schema-versions.mjs"),
       resolve(root, "scripts", "check-examples.mjs"),
     ]);
     break;
   case "validate-schemas":
     runNodeScript(resolve(root, "scripts", "check-schemas.mjs"));
+    break;
+  case "validate-versions":
+    runNodeScript(resolve(root, "scripts", "check-schema-versions.mjs"));
     break;
   case "validate-examples":
     runNodeScript(resolve(root, "scripts", "check-examples.mjs"));

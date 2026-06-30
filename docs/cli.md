@@ -7,6 +7,7 @@ local validation, packaging, consent, risk review, and first adapter surfaces.
 
 - `od4a validate`
 - `od4a validate-schemas`
+- `od4a validate-versions`
 - `od4a validate-examples`
 - `od4a init [package-dir]`
 - `od4a import <source-jsonl> [package-dir]`
@@ -30,7 +31,9 @@ local validation, packaging, consent, risk review, and first adapter surfaces.
 
 ## Behavior
 
-- `validate` runs schema and checked-in example validation locally.
+- `validate` runs schema, schema-version, and checked-in example validation
+  locally. It is narrower than `npm run validate` and does not run CLI
+  regression, repository secret, repository policy, or template checks.
 - `init` creates a local package scaffold with package subdirectories and
   placeholder files.
 - `import` validates and copies a local JSONL source file into a package data

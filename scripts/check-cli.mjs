@@ -187,7 +187,10 @@ async function main() {
     "scan",
     "validate",
     "validate-consent",
+    "validate-examples",
     "validate-package",
+    "validate-schemas",
+    "validate-versions",
     "withdraw-consent",
   ]) {
     assert(help.stdout.includes(`od4a ${command}`), `help should list ${command}`);
@@ -196,12 +199,23 @@ async function main() {
   const validateSchemas = runCli(["validate-schemas"]);
   assert(validateSchemas.status === 0, "validate-schemas command should succeed");
 
+  const validateVersions = runCli(["validate-versions"]);
+  assert(validateVersions.status === 0, "validate-versions command should succeed");
+  assert(
+    validateVersions.stdout.includes("Schema version validation: passed"),
+    "validate-versions should run schema version checks",
+  );
+
   const validateExamples = runCli(["validate-examples"]);
   assert(validateExamples.status === 0, "validate-examples command should succeed");
 
   const validate = runCli(["validate"]);
   assert(validate.status === 0, "validate command should succeed");
   assert(validate.stdout.includes("Validated 4 schema files."), "validate should run schema checks");
+  assert(
+    validate.stdout.includes("Schema version validation: passed"),
+    "validate should run schema version checks",
+  );
   assert(validate.stdout.includes("Validated 2 example packages."), "validate should run example checks");
   assert(
     !validate.stdout.includes("Validated od4a CLI commands."),
