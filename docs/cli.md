@@ -11,6 +11,7 @@ project's validation surface before any adapter or packaging workflow is added.
 - `od4a init [package-dir]`
 - `od4a import <source-jsonl> [package-dir]`
 - `od4a export [package-dir] [output-jsonl]`
+- `od4a scan [package-dir]`
 - `od4a inspect [package-dir]`
 - `od4a help`
 
@@ -22,6 +23,10 @@ project's validation surface before any adapter or packaging workflow is added.
 - `import` validates and copies a local JSONL source file into a package data
   directory.
 - `export` copies the canonical JSONL file back out to stdout or a local file.
+- `scan` checks canonical JSONL for deterministic high-risk patterns such as
+  private keys and API tokens. It reports detector labels and line numbers, not
+  raw matched values. The command exits with status `2` when high-risk findings
+  are present.
 - `inspect` reads an OD4A package manifest from the current directory or a
   relative package directory and prints a summary without opening any network
   connection.

@@ -25,11 +25,11 @@ async function main() {
   const packageDir = join(workDir, "package");
   const sourcePath = join(workDir, "records.jsonl");
   const exportPath = join(workDir, "exported.jsonl");
-  const jsonl = '{"id":1}\n{"id":2}\n';
+  const jsonl = '{"id":1}\r\n\r\n{"id":2}\r\n';
 
   const help = runCli(["help"]);
   assert(help.status === 0, "help command should succeed");
-  for (const command of ["init", "import", "export", "inspect", "validate"]) {
+  for (const command of ["init", "import", "export", "inspect", "scan", "validate"]) {
     assert(help.stdout.includes(`od4a ${command}`), `help should list ${command}`);
   }
 
@@ -41,6 +41,12 @@ async function main() {
 
   const validate = runCli(["validate"]);
   assert(validate.status === 0, "validate command should succeed");
+  assert(validate.stdout.includes("Validated 4 schema files."), "validate should run schema checks");
+  assert(validate.stdout.includes("Validated 1 example package."), "validate should run example checks");
+  assert(
+    !validate.stdout.includes("Validated od4a CLI commands."),
+    "od4a validate must not recursively invoke CLI regression checks",
+  );
 
   const init = runCli(["init", packageDir]);
   assert(init.status === 0, "init command should succeed");
@@ -64,8 +70,12 @@ async function main() {
   assert(imported.status === 0, "import command should succeed");
   assert(
     (await readFile(join(packageDir, "data", "jsonl", "events.jsonl"), "utf8")) === jsonl,
-    "import should preserve valid JSONL records",
+    "import should preserve original JSONL bytes",
   );
+
+  const cleanScan = runCli(["scan", packageDir]);
+  assert(cleanScan.status === 0, "scan should pass clean JSONL");
+  assert(cleanScan.stdout.includes("Findings: 0"), "scan should report zero findings");
 
   const exportedStdout = runCli(["export", packageDir]);
   assert(exportedStdout.status === 0, "stdout export should succeed");
@@ -74,6 +84,16 @@ async function main() {
   const exportedFile = runCli(["export", packageDir, exportPath]);
   assert(exportedFile.status === 0, "file export should succeed");
   assert((await readFile(exportPath, "utf8")) === jsonl, "file export should match imported JSONL");
+
+  const fakeSecret = "sk-abcdefghijklmnopqrstuvwxyz0123456789AB";
+  await writeFile(sourcePath, `${JSON.stringify({ text: fakeSecret })}\n`);
+  const secretImport = runCli(["import", sourcePath, packageDir]);
+  assert(secretImport.status === 0, "import should accept valid JSONL with high-risk text");
+
+  const secretScan = runCli(["scan"], { cwd: packageDir });
+  assert(secretScan.status === 2, "scan should fail closed when high-risk secrets are found");
+  assert(secretScan.stdout.includes("secret.openai_api_key"), "scan should report the detector label");
+  assert(!secretScan.stdout.includes(fakeSecret), "scan output must not echo detected secret values");
 
   await mkdir(join(packageDir, "metadata"), { recursive: true });
   await writeFile(

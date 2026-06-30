@@ -93,14 +93,15 @@ async function importJsonl(sourcePath, targetDir) {
 
   let contents;
   try {
-    contents = await readFile(inputPath, "utf8");
+    contents = await readFile(inputPath);
   } catch (error) {
     console.error(`Unable to read input JSONL at ${inputPath}`);
     console.error(error.message);
     process.exit(1);
   }
 
-  const lines = contents.split(/\r?\n/).filter((line) => line.trim().length > 0);
+  const text = contents.toString("utf8");
+  const lines = text.split(/\r?\n/).filter((line) => line.trim().length > 0);
   if (lines.length === 0) {
     console.error("Input JSONL is empty");
     process.exit(1);
@@ -117,7 +118,7 @@ async function importJsonl(sourcePath, targetDir) {
   }
 
   await mkdir(resolve(packageRoot, "data", "jsonl"), { recursive: true });
-  await writeFile(destinationPath, `${lines.join("\n")}\n`);
+  await writeFile(destinationPath, contents);
 
   console.log(`Imported ${lines.length} JSONL records to ${destinationPath}`);
 }
@@ -142,6 +143,116 @@ async function exportJsonl(packageDir, outputPath) {
   }
 
   process.stdout.write(contents);
+}
+
+const riskDetectors = [
+  {
+    label: "secret.private_key",
+    severity: "high",
+    pattern: /-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----/,
+  },
+  {
+    label: "secret.openai_api_key",
+    severity: "high",
+    pattern: /\bsk-[A-Za-z0-9_-]{32,}\b/,
+  },
+  {
+    label: "secret.aws_access_key",
+    severity: "high",
+    pattern: /\bA[KS]IA[0-9A-Z]{16}\b/,
+  },
+  {
+    label: "secret.github_token",
+    severity: "high",
+    pattern: /\bgh[pousr]_[A-Za-z0-9_]{30,}\b/,
+  },
+  {
+    label: "secret.env_assignment",
+    severity: "medium",
+    pattern: /\b[A-Z][A-Z0-9_]*(?:TOKEN|SECRET|PASSWORD|API_KEY)\s*=\s*["']?[^"',\s]{8,}/,
+  },
+];
+
+function collectStringValues(value, values = []) {
+  if (typeof value === "string") {
+    values.push(value);
+    return values;
+  }
+
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      collectStringValues(item, values);
+    }
+    return values;
+  }
+
+  if (value && typeof value === "object") {
+    for (const item of Object.values(value)) {
+      collectStringValues(item, values);
+    }
+  }
+
+  return values;
+}
+
+async function scanPackage(packageDir) {
+  const sourcePath = resolve(process.cwd(), packageDir, "data", "jsonl", "events.jsonl");
+
+  let contents;
+  try {
+    contents = await readFile(sourcePath, "utf8");
+  } catch (error) {
+    console.error(`Unable to read JSONL at ${sourcePath}`);
+    console.error(error.message);
+    process.exit(1);
+  }
+
+  const findings = new Map();
+  const lines = contents.split(/\r?\n/).filter((line) => line.trim().length > 0);
+
+  for (const [index, line] of lines.entries()) {
+    let event;
+    try {
+      event = JSON.parse(line);
+    } catch (error) {
+      console.error(`Invalid JSON on line ${index + 1} of ${sourcePath}`);
+      console.error(error.message);
+      process.exit(1);
+    }
+
+    for (const text of collectStringValues(event)) {
+      for (const detector of riskDetectors) {
+        if (!detector.pattern.test(text)) {
+          continue;
+        }
+
+        const key = `${detector.label}:${index + 1}`;
+        findings.set(key, {
+          label: detector.label,
+          severity: detector.severity,
+          line: index + 1,
+        });
+      }
+    }
+  }
+
+  const sortedFindings = [...findings.values()].sort((left, right) => {
+    if (left.line !== right.line) {
+      return left.line - right.line;
+    }
+    return left.label.localeCompare(right.label);
+  });
+
+  console.log(`Scanned ${lines.length} JSONL records.`);
+  console.log(`Findings: ${sortedFindings.length}`);
+
+  for (const finding of sortedFindings) {
+    console.log(`- line ${finding.line}: ${finding.label} (${finding.severity})`);
+  }
+
+  if (sortedFindings.some((finding) => finding.severity === "high")) {
+    process.exit(2);
+  }
 }
 
 async function inspectPackage(packageDir) {
@@ -177,6 +288,7 @@ Usage:
   od4a init [package-dir]
   od4a import <source-jsonl> [package-dir]
   od4a export [package-dir] [output-jsonl]
+  od4a scan [package-dir]
   od4a validate
   od4a validate-schemas
   od4a validate-examples
@@ -184,7 +296,8 @@ Usage:
   od4a help
 
 Current commands are intentionally narrow. The initial CLI only performs local
-package scaffolding, JSONL import/export, validation, and manifest inspection.
+package scaffolding, JSONL import/export, risk scanning, validation, and
+manifest inspection.
 `);
 }
 
@@ -201,6 +314,9 @@ switch (command) {
     break;
   case "export":
     await exportJsonl(args[1] ?? ".", args[2]);
+    break;
+  case "scan":
+    await scanPackage(args[1] ?? ".");
     break;
   case "validate":
     runNodeScripts([
