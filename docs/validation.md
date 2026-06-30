@@ -13,8 +13,9 @@ governance invariants remain represented in the schemas, that checked-in
 example packages are internally consistent, that the local CLI commands keep
 working against checked-in adapter fixtures and disposable packages, that
 repository text files do not contain unallowlisted live-looking credentials, and
-that controlled-access policy templates keep required donor-protection
-guardrails.
+that repository package and CI policy still enforce private, dependency-free
+validation. It also checks that controlled-access policy templates keep required
+donor-protection guardrails.
 
 The CI workflow runs the same command on pull requests and pushes to `main`.
 The workflow does not require dependency installation because the CLI and
@@ -62,6 +63,10 @@ validation scripts use only the Node.js standard library.
   AWS, GitHub, and PEM private-key credentials while printing only path, line,
   and detector label context. Allowlisted token/private-key-looking matches are
   limited to exact synthetic redaction canary fixture values at exact paths.
+- Repository policy validation must keep `package.json` private and
+  dependency-free, ensure every local validation gate remains wired into
+  `npm run validate`, and ensure CI runs validation without install or
+  dependency-cache assumptions.
 
 ## Current Template Invariants
 
@@ -77,4 +82,4 @@ validation scripts use only the Node.js standard library.
 
 Later milestones should add full JSON Schema instance validation, broader
 example fixtures, schema migration tests, broader redaction policy matrices,
-dependency and scanning policy checks, and signed release checks.
+broader scanning policy checks, and signed release checks.
