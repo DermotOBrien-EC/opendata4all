@@ -1551,6 +1551,11 @@ const riskDetectors = [
     pattern: /\bgh[pousr]_[A-Za-z0-9_]{30,}\b/,
   },
   {
+    label: "secret.github_fine_grained_token",
+    severity: "high",
+    pattern: /\bgithub_pat_[A-Za-z0-9_]{20,}_[A-Za-z0-9_]{40,}\b/,
+  },
+  {
     label: "secret.env_assignment",
     severity: "medium",
     pattern: /\b[A-Z][A-Z0-9_]*(?:TOKEN|SECRET|PASSWORD|API_KEY)\s*=\s*["']?[^"',\s]{8,}/,

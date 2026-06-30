@@ -64,10 +64,10 @@ validation scripts use only the Node.js standard library.
   research reports must be `controlled_only` or `publishable`.
 - Checked-in redaction canary fixtures must keep exercising every current
   deterministic detector label: OpenAI-style tokens, AWS access keys, GitHub
-  tokens, private-key headers, environment assignments, email addresses, IP
-  addresses, full URLs, and local file paths. CLI checks must prove raw matched
-  values are not echoed in scan, preview, package validation, manifest, or
-  report output.
+  classic tokens, GitHub fine-grained tokens, private-key headers, environment
+  assignments, email addresses, IP addresses, full URLs, and local file paths.
+  CLI checks must prove raw matched values are not echoed in scan, preview,
+  package validation, manifest, or report output.
 - Repository secret scanning must fail on unallowlisted live-looking OpenAI,
   AWS, classic GitHub, fine-grained GitHub, and PEM private-key credentials
   while printing only path, line, and detector label context. Allowlisted

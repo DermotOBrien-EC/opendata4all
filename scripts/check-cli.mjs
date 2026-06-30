@@ -15,6 +15,10 @@ const redactionCanariesDir = join(root, "examples", "redaction-canaries");
 const highRiskSecretCanaryPath = join(redactionCanariesDir, "high-risk-secret.jsonl");
 const highRiskAwsAccessKeyCanaryPath = join(redactionCanariesDir, "high-risk-aws-access-key.jsonl");
 const highRiskGithubTokenCanaryPath = join(redactionCanariesDir, "high-risk-github-token.jsonl");
+const highRiskGithubFineGrainedTokenCanaryPath = join(
+  redactionCanariesDir,
+  "high-risk-github-fine-grained-token.jsonl",
+);
 const highRiskPrivateKeyCanaryPath = join(redactionCanariesDir, "high-risk-private-key.jsonl");
 const mediumRiskPersonalCanaryPath = join(redactionCanariesDir, "medium-risk-personal.jsonl");
 const mediumRiskEnvAssignmentCanaryPath = join(redactionCanariesDir, "medium-risk-env-assignment.jsonl");
@@ -33,6 +37,11 @@ const highRiskRedactionCanaries = [
     name: "github-token",
     path: highRiskGithubTokenCanaryPath,
     labels: ["secret.github_token"],
+  },
+  {
+    name: "github-fine-grained-token",
+    path: highRiskGithubFineGrainedTokenCanaryPath,
+    labels: ["secret.github_fine_grained_token"],
   },
   {
     name: "private-key",
