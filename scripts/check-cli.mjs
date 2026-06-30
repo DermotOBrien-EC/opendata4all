@@ -1,5 +1,6 @@
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -20,6 +21,10 @@ function runCli(args, options = {}) {
   });
 }
 
+function sha256Hex(contents) {
+  return `sha256:${createHash("sha256").update(contents).digest("hex")}`;
+}
+
 async function main() {
   const workDir = await mkdtemp(join(tmpdir(), "od4a-cli-"));
   const packageDir = join(workDir, "package");
@@ -30,6 +35,7 @@ async function main() {
   const help = runCli(["help"]);
   assert(help.status === 0, "help command should succeed");
   for (const command of [
+    "consent-draft",
     "init",
     "import",
     "export",
@@ -210,23 +216,54 @@ async function main() {
   }
 
   await mkdir(join(packageDir, "metadata"), { recursive: true });
-  await writeFile(
-    join(packageDir, "metadata", "manifest.json"),
-    `${JSON.stringify({
-      package_id: "od4a-cli-check",
-      version: "0.1.0",
-      release_tier: "local_review",
-      schema_version: "0.1.0",
-      files: [{ path: "data/jsonl/events.jsonl" }],
-      consent_receipts: [],
-      redaction_reports: [],
-      validation: { status: "draft" },
-    })}\n`,
-  );
+  const manifestJson = `${JSON.stringify({
+    package_id: "od4a-cli-check",
+    version: "0.1.0",
+    release_tier: "local_review",
+    schema_version: "0.1.0",
+    publisher: {
+      name: "OD4A CLI test steward",
+      contact: "privacy@example.invalid",
+    },
+    source_adapters: [
+      {
+        name: "od4a-cli-check",
+        version: "0.1.0",
+        capture_method: "manual_import",
+      },
+    ],
+    files: [{ path: "data/jsonl/events.jsonl" }],
+    consent_receipts: [],
+    redaction_reports: [],
+    validation: { status: "draft" },
+  })}\n`;
+  await writeFile(join(packageDir, "metadata", "manifest.json"), manifestJson);
 
   const inspected = runCli(["inspect"], { cwd: packageDir });
   assert(inspected.status === 0, "inspect should succeed from a package directory");
   assert(inspected.stdout.includes("Package: od4a-cli-check"), "inspect should summarize package id");
+
+  const consentDraft = runCli(["consent-draft"], { cwd: packageDir });
+  assert(consentDraft.status === 0, "consent-draft should write draft receipts");
+  assert(consentDraft.stdout.includes("Status: draft"), "consent-draft should not activate consent");
+  const parsedConsentDraft = JSON.parse(await readFile(join(packageDir, "receipts", "consent-draft.json"), "utf8"));
+  assert(parsedConsentDraft.status === "draft", "generated consent receipt must remain draft");
+  assert(
+    parsedConsentDraft.package_manifest_hash === sha256Hex(manifestJson),
+    "generated consent receipt should bind the exact manifest hash",
+  );
+  assert(
+    parsedConsentDraft.source_scope.time_scope.mode === "one_time",
+    "generated consent receipt should scope draft consent to one package",
+  );
+  assert(
+    parsedConsentDraft.source_scope.adapters[0].name === "od4a-cli-check",
+    "generated consent receipt should carry manifest adapter metadata",
+  );
+  assert(
+    !("url" in parsedConsentDraft.withdrawal) && !("email" in parsedConsentDraft.withdrawal),
+    "draft consent receipt should not invent an actionable withdrawal path",
+  );
 
   await writeFile(sourcePath, '{"id":1}\nnot json\n');
   const invalidImport = runCli(["import", sourcePath, packageDir]);

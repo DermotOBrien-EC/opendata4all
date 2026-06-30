@@ -402,17 +402,123 @@ async function validatePackage(packageDir) {
   }
 }
 
-async function inspectPackage(packageDir) {
+async function readPackageManifest(packageDir) {
   const manifestPath = resolve(process.cwd(), packageDir, "metadata", "manifest.json");
 
-  let manifest;
+  let contents;
   try {
-    manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+    contents = await readFile(manifestPath);
   } catch (error) {
     console.error(`Unable to read manifest at ${manifestPath}`);
     console.error(error.message);
     process.exit(1);
   }
+
+  let manifest;
+  try {
+    manifest = JSON.parse(contents.toString("utf8"));
+  } catch (error) {
+    console.error(`Invalid JSON in manifest at ${manifestPath}`);
+    console.error(error.message);
+    process.exit(1);
+  }
+
+  return {
+    manifest,
+    manifestHash: sha256Hex(contents),
+    manifestPath,
+  };
+}
+
+function recipientClassesForReleaseTier(releaseTier) {
+  switch (releaseTier) {
+    case "public_release":
+      return ["public"];
+    case "controlled_research":
+      return ["data_access_committee", "approved_researchers"];
+    case "reproducibility_snapshot":
+      return ["approved_researchers"];
+    default:
+      return ["project_steward"];
+  }
+}
+
+function consentReleaseTier(releaseTier) {
+  return ["local_review", "controlled_research", "public_release", "reproducibility_snapshot"].includes(releaseTier)
+    ? releaseTier
+    : "local_review";
+}
+
+function consentAdapters(manifest) {
+  if (Array.isArray(manifest.source_adapters) && manifest.source_adapters.length > 0) {
+    return manifest.source_adapters.map((adapter) => ({
+      name: adapter.name ?? "TODO: adapter name",
+      version: adapter.version ?? "TODO: adapter version",
+      ...(adapter.capture_method ? { capture_method: adapter.capture_method } : {}),
+    }));
+  }
+
+  return [
+    {
+      name: "TODO: adapter name",
+      version: "TODO: adapter version",
+    },
+  ];
+}
+
+function buildConsentDraft(packageDir, manifest, manifestHash) {
+  const releaseTier = consentReleaseTier(manifest.release_tier);
+
+  return {
+    schema_version: "0.1.0",
+    receipt_id: `consent-draft-${manifestHash.slice("sha256:".length, "sha256:".length + 16)}`,
+    created_at: new Date().toISOString(),
+    notice_version: "od4a-consent-notice-draft-0.1.0",
+    controller: {
+      name: manifest.publisher?.name ?? "TODO: controller name",
+      contact: manifest.publisher?.contact ?? "TODO: controller contact",
+    },
+    source_scope: {
+      sources: [manifest.package_id ?? packageDir],
+      adapters: consentAdapters(manifest),
+      project_scope: [packageDir],
+      time_scope: {
+        mode: "one_time",
+      },
+    },
+    data_classes: ["ai_interaction_records"],
+    purposes: ["open_ai_research"],
+    recipient_classes: recipientClassesForReleaseTier(releaseTier),
+    release_tier: releaseTier,
+    redaction_policy_version: "od4a-local-risk-scan-0.1.0",
+    package_manifest_hash: manifestHash,
+    retention: {
+      class: "until_withdrawn",
+    },
+    withdrawal: {
+      method: "TODO: add withdrawal URL or email before activation",
+    },
+    status: "draft",
+  };
+}
+
+async function writeConsentDraft(packageDir, outputPath) {
+  const targetPath = outputPath
+    ? resolve(process.cwd(), outputPath)
+    : resolve(process.cwd(), packageDir, "receipts", "consent-draft.json");
+  const { manifest, manifestHash } = await readPackageManifest(packageDir);
+  const draft = buildConsentDraft(packageDir, manifest, manifestHash);
+
+  await mkdir(dirname(targetPath), { recursive: true });
+  await writeFile(targetPath, `${JSON.stringify(draft, null, 2)}\n`);
+
+  console.log(`Wrote draft consent receipt to ${targetPath}`);
+  console.log(`Status: ${draft.status}`);
+  console.log(`Package manifest hash: ${draft.package_manifest_hash}`);
+}
+
+async function inspectPackage(packageDir) {
+  const { manifest } = await readPackageManifest(packageDir);
 
   const fileCount = Array.isArray(manifest.files) ? manifest.files.length : 0;
   const consentCount = Array.isArray(manifest.consent_receipts) ? manifest.consent_receipts.length : 0;
@@ -439,6 +545,7 @@ Usage:
   od4a report [package-dir] [output-json]
   od4a preview [package-dir]
   od4a validate-package [package-dir]
+  od4a consent-draft [package-dir] [output-json]
   od4a validate
   od4a validate-schemas
   od4a validate-examples
@@ -447,7 +554,8 @@ Usage:
 
 Current commands are intentionally narrow. The initial CLI only performs local
 package scaffolding, JSONL import/export, risk scanning, redaction reporting,
-preview summaries, fail-closed package validation, and manifest inspection.
+preview summaries, fail-closed package validation, draft consent receipt
+generation, and manifest inspection.
 `);
 }
 
@@ -476,6 +584,9 @@ switch (command) {
     break;
   case "validate-package":
     await validatePackage(args[1] ?? ".");
+    break;
+  case "consent-draft":
+    await writeConsentDraft(args[1] ?? ".", args[2]);
     break;
   case "validate":
     runNodeScripts([

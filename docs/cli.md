@@ -15,6 +15,7 @@ project's validation surface before any adapter or packaging workflow is added.
 - `od4a report [package-dir] [output-json]`
 - `od4a preview [package-dir]`
 - `od4a validate-package [package-dir]`
+- `od4a consent-draft [package-dir] [output-json]`
 - `od4a inspect [package-dir]`
 - `od4a help`
 
@@ -40,10 +41,12 @@ project's validation surface before any adapter or packaging workflow is added.
 - `validate-package` runs the local package risk gate. It exits with status `2`
   when unresolved high-risk findings block export, and does not render raw
   transcript text or matched values.
+- `consent-draft` writes a draft consent receipt template bound to the exact
+  package manifest hash. It does not record active consent.
 - `inspect` reads an OD4A package manifest from the current directory or a
   relative package directory and prints a summary without opening any network
   connection.
 - The initial CLI does not publish, upload, or connect to external services.
 - All output should remain free of raw donated data.
-- Future commands such as `redact`, `preview`, and `package` will build on the
-  same local-first contract.
+- Future commands such as `redact` and `package` will build on the same
+  local-first contract.

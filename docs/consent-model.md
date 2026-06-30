@@ -14,6 +14,10 @@ Consent must be explicit, informed, granular, recorded, and revocable.
    tiers.
 5. Receipt: produce a user-readable and machine-readable consent receipt.
 
+The CLI may generate draft receipt templates to help users and stewards review
+the exact manifest hash and scope fields. A draft receipt is not active consent;
+activation requires an affirmative user action and an actionable withdrawal path.
+
 ## Granular Scopes
 
 Consent should be scoped by:

@@ -75,6 +75,7 @@ od4a scan od4a-package
 od4a report od4a-package
 od4a preview od4a-package
 od4a validate-package od4a-package
+od4a consent-draft od4a-package
 od4a export od4a-package
 od4a validate
 od4a inspect examples/minimal-package
