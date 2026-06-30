@@ -38,6 +38,13 @@ Preferred surfaces:
   trace IDs.
 - Agents SDK trace metadata where available.
 
+The local CLI prototype includes `od4a import-openai-api <app-log-jsonl>
+[package-dir]` for user-owned application logs. It accepts JSONL records with
+supported app-side `messages`, `input`, `prompt`, `output`, or `output_text`
+fields, then normalizes them into OD4A events for local review. This is not a
+cloud export client and does not read provider dashboards, credentials, abuse
+logs, or private product storage.
+
 Do not depend on private app or cloud internals, unstable transcript files, or
 platform-side abuse-monitoring logs.
 

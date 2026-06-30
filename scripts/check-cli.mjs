@@ -28,6 +28,8 @@ function sha256Hex(contents) {
 async function main() {
   const workDir = await mkdtemp(join(tmpdir(), "od4a-cli-"));
   const packageDir = join(workDir, "package");
+  const openAiPackageDir = join(workDir, "openai-package");
+  const openAiLogPath = join(workDir, "openai-api-log.jsonl");
   const sourcePath = join(workDir, "records.jsonl");
   const exportPath = join(workDir, "exported.jsonl");
   const jsonl = '{"id":1}\r\n\r\n{"id":2}\r\n';
@@ -38,6 +40,7 @@ async function main() {
     "consent-draft",
     "init",
     "import",
+    "import-openai-api",
     "export",
     "inspect",
     "preview",
@@ -109,6 +112,74 @@ async function main() {
   const exportedFile = runCli(["export", packageDir, exportPath]);
   assert(exportedFile.status === 0, "file export should succeed");
   assert((await readFile(exportPath, "utf8")) === jsonl, "file export should match imported JSONL");
+
+  await writeFile(
+    openAiLogPath,
+    `${JSON.stringify({
+      request_id: "req_001",
+      conversation_id: "conv_001",
+      created_at: "2026-06-30T08:15:00.000Z",
+      messages: [
+        {
+          role: "user",
+          content: "Summarize consent requirements.",
+        },
+        {
+          role: "assistant",
+          content: [{ type: "output_text", text: "Use explicit, revocable consent." }],
+        },
+      ],
+    })}\n${JSON.stringify({
+      id: "resp_002",
+      created: 1782807300,
+      input: "What should adapters avoid?",
+      output_text: "Private app internals and undocumented storage.",
+    })}\n${JSON.stringify({
+      id: "resp_002",
+      created: 1782807300,
+      input: "What should adapters avoid?",
+      output_text: "Private app internals and undocumented storage.",
+    })}\n`,
+  );
+  const openAiImport = runCli(["import-openai-api", openAiLogPath, openAiPackageDir]);
+  assert(openAiImport.status === 0, "import-openai-api command should succeed");
+  const openAiEvents = (await readFile(join(openAiPackageDir, "data", "jsonl", "events.jsonl"), "utf8"))
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line));
+  assert(openAiEvents.length === 6, "import-openai-api should normalize input and output messages");
+  assert(
+    new Set(openAiEvents.map((event) => event.event_id)).size === openAiEvents.length,
+    "duplicate OpenAI API log records should still produce unique event IDs",
+  );
+  assert(
+    openAiEvents.every((event) => event.source.adapter_name === "od4a-openai-api-app-log"),
+    "OpenAI API events should identify the source adapter",
+  );
+  assert(
+    openAiEvents.every((event) => event.source.capture_method === "manual_import"),
+    "OpenAI API events should use manual_import capture method",
+  );
+  assert(
+    openAiEvents.every((event) => event.provenance.trust_level === "user_supplied"),
+    "OpenAI API events should mark app-side logs as user-supplied",
+  );
+  assert(
+    openAiEvents.every((event) => /^sha256:[a-f0-9]{64}$/.test(event.provenance.raw_source_hash)),
+    "OpenAI API events should carry per-source-line hashes",
+  );
+  assert(openAiEvents[0].actor.type === "user", "OpenAI API user messages should map to user actor type");
+  assert(openAiEvents[1].actor.type === "assistant", "OpenAI API assistant messages should map to assistant actor type");
+  assert(
+    openAiEvents[2].data.parts[0].text === "What should adapters avoid?",
+    "OpenAI API input fields should normalize to user text parts",
+  );
+  assert(
+    openAiEvents[3].data.parts[0].text === "Private app internals and undocumented storage.",
+    "OpenAI API output_text fields should normalize to assistant text parts",
+  );
+  const openAiScan = runCli(["scan", openAiPackageDir]);
+  assert(openAiScan.status === 0, "scan should accept normalized OpenAI API events");
 
   const fakeSecret = "sk-abcdefghijklmnopqrstuvwxyz0123456789AB";
   const secretReportPath = join(workDir, "secret-redaction-report.json");

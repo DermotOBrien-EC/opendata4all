@@ -1,7 +1,7 @@
 # CLI
 
-The initial `od4a` command is intentionally narrow. It exists to expose the
-project's validation surface before any adapter or packaging workflow is added.
+The initial `od4a` command is intentionally narrow. It exposes the project's
+local validation, packaging, consent, risk review, and first adapter surfaces.
 
 ## Commands
 
@@ -10,6 +10,7 @@ project's validation surface before any adapter or packaging workflow is added.
 - `od4a validate-examples`
 - `od4a init [package-dir]`
 - `od4a import <source-jsonl> [package-dir]`
+- `od4a import-openai-api <app-log-jsonl> [package-dir]`
 - `od4a export [package-dir] [output-jsonl]`
 - `od4a scan [package-dir]`
 - `od4a report [package-dir] [output-json]`
@@ -28,6 +29,12 @@ project's validation surface before any adapter or packaging workflow is added.
   placeholder files.
 - `import` validates and copies a local JSONL source file into a package data
   directory.
+- `import-openai-api` reads user-owned OpenAI API application-side JSONL logs
+  and normalizes supported `messages`, `input`, `prompt`, `output`, and
+  `output_text` fields into OD4A interaction events. It skips blank JSONL lines,
+  rejects records without importable message text, writes local-review events,
+  and does not call OpenAI services, inspect credentials, or read private app
+  internals.
 - `export` copies the canonical JSONL file back out to stdout or a local file.
 - `scan` checks canonical JSONL for deterministic risk patterns such as private
   keys, API tokens, email addresses, IP addresses, full URLs, and local file

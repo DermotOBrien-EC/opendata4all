@@ -124,6 +124,269 @@ async function importJsonl(sourcePath, targetDir) {
   console.log(`Imported ${lines.length} JSONL records to ${destinationPath}`);
 }
 
+function normalizeTimestamp(value) {
+  if (typeof value === "string" && value.trim().length > 0) {
+    const parsed = new Date(value);
+    if (!Number.isNaN(parsed.getTime())) {
+      return parsed.toISOString();
+    }
+  }
+
+  if (typeof value === "number" && Number.isFinite(value)) {
+    const milliseconds = value > 10_000_000_000 ? value : value * 1000;
+    const parsed = new Date(milliseconds);
+    if (!Number.isNaN(parsed.getTime())) {
+      return parsed.toISOString();
+    }
+  }
+
+  return new Date().toISOString();
+}
+
+function firstString(...values) {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim().length > 0) {
+      return value;
+    }
+  }
+  return null;
+}
+
+function textFromOpenAiValue(value) {
+  if (typeof value === "string") {
+    return value;
+  }
+
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => textFromOpenAiValue(item))
+      .filter((text) => text.length > 0)
+      .join("\n");
+  }
+
+  if (!value || typeof value !== "object") {
+    return "";
+  }
+
+  if (typeof value.text === "string") {
+    return value.text;
+  }
+
+  if (typeof value.output_text === "string") {
+    return value.output_text;
+  }
+
+  if (typeof value.input_text === "string") {
+    return value.input_text;
+  }
+
+  if (typeof value.content === "string" || Array.isArray(value.content)) {
+    return textFromOpenAiValue(value.content);
+  }
+
+  if (value.message) {
+    return textFromOpenAiValue(value.message);
+  }
+
+  return "";
+}
+
+function actorTypeForOpenAiRole(role) {
+  switch (role) {
+    case "user":
+      return "user";
+    case "assistant":
+      return "assistant";
+    case "tool":
+      return "tool";
+    case "system":
+    case "developer":
+      return "system";
+    default:
+      return "adapter";
+  }
+}
+
+function eventTimeForOpenAiRecord(record) {
+  return normalizeTimestamp(
+    record.created_at ??
+      record.timestamp ??
+      record.created ??
+      record.request?.created_at ??
+      record.response?.created_at ??
+      record.response?.created,
+  );
+}
+
+function openAiConversationId(record, rawLineHash, lineNumber) {
+  return (
+    firstString(record.conversation_id, record.thread_id, record.session_id) ??
+    `openai-api-line-${lineNumber}-${rawLineHash.slice("sha256:".length, "sha256:".length + 12)}`
+  );
+}
+
+function openAiTurnId(record, lineNumber) {
+  return firstString(record.turn_id, record.request_id, record.response_id, record.id) ?? `line-${lineNumber}`;
+}
+
+function openAiMessagesFromRecord(record) {
+  if (Array.isArray(record.messages)) {
+    return record.messages.map((message) => ({
+      role: typeof message?.role === "string" ? message.role : "adapter",
+      text: textFromOpenAiValue(message?.content ?? message?.text),
+      messageId: firstString(message?.id, message?.message_id),
+    }));
+  }
+
+  const messages = [];
+  const inputText = textFromOpenAiValue(record.input ?? record.prompt ?? record.request?.input);
+  if (inputText.length > 0) {
+    messages.push({
+      role: "user",
+      text: inputText,
+      messageId: firstString(record.input_id, record.request_id),
+    });
+  }
+
+  const outputText = textFromOpenAiValue(
+    record.output_text ?? record.output ?? record.completion ?? record.response?.output_text ?? record.response?.output,
+  );
+  if (outputText.length > 0) {
+    messages.push({
+      role: "assistant",
+      text: outputText,
+      messageId: firstString(record.output_id, record.response_id, record.id),
+    });
+  }
+
+  return messages;
+}
+
+function buildOpenAiEvent({ record, message, messageIndex, lineNumber, rawLineHash, sourceHash, sequence }) {
+  const role = typeof message.role === "string" && message.role.length > 0 ? message.role : "adapter";
+  const eventHash = sha256Digest(`${lineNumber}:${sequence}:${rawLineHash}:${messageIndex}:${role}:${message.text}`);
+  const turnId = openAiTurnId(record, lineNumber);
+
+  return {
+    schema_version: "0.1.0",
+    event_id: `openai-api-${eventHash.slice(0, 24)}`,
+    event_type: "org.opendata4all.message.created",
+    event_time: eventTimeForOpenAiRecord(record),
+    source: {
+      harness: "openai-api-app",
+      harness_kind: "api_application_log",
+      adapter_name: "od4a-openai-api-app-log",
+      adapter_version: "0.1.0",
+      capture_method: "manual_import",
+    },
+    conversation_id: openAiConversationId(record, rawLineHash, lineNumber),
+    turn_id: `${turnId}-${messageIndex + 1}`,
+    sequence,
+    actor: {
+      type: actorTypeForOpenAiRole(role),
+      role,
+    },
+    consent: {
+      status: "unknown",
+      scope: ["local_preview"],
+      receipt_id: "pending",
+      policy_version: "od4a-consent-0.1.0",
+    },
+    risk: {
+      severity: "none",
+      labels: [],
+      score: 0,
+    },
+    redactions: [],
+    provenance: {
+      raw_source_hash: rawLineHash,
+      normalization_run_id: `openai-api-log-${sourceHash.slice("sha256:".length, "sha256:".length + 16)}`,
+      trust_level: "user_supplied",
+    },
+    data: {
+      kind: "message",
+      role,
+      message_id: message.messageId ?? `${turnId}-${messageIndex + 1}`,
+      parts: [
+        {
+          type: "text",
+          text: message.text,
+        },
+      ],
+      content_release_level: "raw_local_review",
+      source_line: lineNumber,
+    },
+  };
+}
+
+async function importOpenAiApiLog(sourcePath, targetDir) {
+  const inputPath = resolve(process.cwd(), sourcePath);
+  const packageRoot = resolve(process.cwd(), targetDir);
+  const destinationPath = resolve(packageRoot, "data", "jsonl", "events.jsonl");
+
+  let contents;
+  try {
+    contents = await readFile(inputPath);
+  } catch (error) {
+    console.error(`Unable to read OpenAI API app-side JSONL at ${inputPath}`);
+    console.error(error.message);
+    process.exit(1);
+  }
+
+  const sourceHash = sha256Hex(contents);
+  const events = [];
+  let recordCount = 0;
+
+  for (const [index, line] of contents.toString("utf8").split(/\r?\n/).entries()) {
+    if (line.trim().length === 0) {
+      continue;
+    }
+
+    const lineNumber = index + 1;
+    let record;
+    try {
+      record = JSON.parse(line);
+    } catch (error) {
+      console.error(`Invalid JSON on line ${lineNumber} of ${inputPath}`);
+      console.error(error.message);
+      process.exit(1);
+    }
+
+    recordCount += 1;
+    const rawLineHash = sha256Hex(Buffer.from(line, "utf8"));
+    const messages = openAiMessagesFromRecord(record).filter((message) => message.text.length > 0);
+
+    if (messages.length === 0) {
+      console.error(`No importable OpenAI message text on line ${lineNumber} of ${inputPath}`);
+      process.exit(1);
+    }
+
+    for (const [messageIndex, message] of messages.entries()) {
+      events.push(
+        buildOpenAiEvent({
+          record,
+          message,
+          messageIndex,
+          lineNumber,
+          rawLineHash,
+          sourceHash,
+          sequence: events.length,
+        }),
+      );
+    }
+  }
+
+  if (recordCount === 0) {
+    console.error("Input OpenAI API app-side JSONL is empty");
+    process.exit(1);
+  }
+
+  await mkdir(resolve(packageRoot, "data", "jsonl"), { recursive: true });
+  await writeFile(destinationPath, `${events.map((event) => JSON.stringify(event)).join("\n")}\n`);
+
+  console.log(`Imported ${recordCount} OpenAI app-side records as ${events.length} OD4A events to ${destinationPath}`);
+}
+
 async function exportJsonl(packageDir, outputPath) {
   const sourcePath = resolve(process.cwd(), packageDir, "data", "jsonl", "events.jsonl");
 
@@ -219,6 +482,10 @@ function collectStringValues(value, values = []) {
 
 function sha256Hex(contents) {
   return `sha256:${createHash("sha256").update(contents).digest("hex")}`;
+}
+
+function sha256Digest(contents) {
+  return createHash("sha256").update(contents).digest("hex");
 }
 
 function actionForSeverity(severity) {
@@ -775,6 +1042,7 @@ function printHelp() {
 Usage:
   od4a init [package-dir]
   od4a import <source-jsonl> [package-dir]
+  od4a import-openai-api <app-log-jsonl> [package-dir]
   od4a export [package-dir] [output-jsonl]
   od4a scan [package-dir]
   od4a report [package-dir] [output-json]
@@ -790,9 +1058,10 @@ Usage:
   od4a help
 
 Current commands are intentionally narrow. The initial CLI only performs local
-package scaffolding, JSONL import/export, risk scanning, redaction reporting,
-preview summaries, fail-closed package validation, draft consent receipt
-generation, consent validation, withdrawal records, and manifest inspection.
+package scaffolding, JSONL import/export, OpenAI API app-side log normalization,
+risk scanning, redaction reporting, preview summaries, fail-closed package
+validation, draft consent receipt generation, consent validation, withdrawal
+records, and manifest inspection.
 `);
 }
 
@@ -806,6 +1075,13 @@ switch (command) {
       process.exit(1);
     }
     await importJsonl(args[1], args[2] ?? ".");
+    break;
+  case "import-openai-api":
+    if (args.length < 2) {
+      console.error("Usage: od4a import-openai-api <app-log-jsonl> [package-dir]");
+      process.exit(1);
+    }
+    await importOpenAiApiLog(args[1], args[2] ?? ".");
     break;
   case "export":
     await exportJsonl(args[1] ?? ".", args[2]);

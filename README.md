@@ -65,12 +65,13 @@ research queries.
 - [Governance](GOVERNANCE.md)
 - [Security](SECURITY.md)
 
-The `od4a` CLI currently supports local validation and package inspection
-commands:
+The `od4a` CLI currently supports local package, validation, consent, risk
+review, and first adapter commands:
 
 ```bash
 od4a init od4a-package
 od4a import ./records.jsonl od4a-package
+od4a import-openai-api ./openai-app-log.jsonl od4a-package
 od4a scan od4a-package
 od4a report od4a-package
 od4a preview od4a-package
