@@ -16,7 +16,7 @@ project's validation surface before any adapter or packaging workflow is added.
 
 ## Behavior
 
-- Validation runs locally.
+- `validate` runs schema and checked-in example validation locally.
 - `init` creates a local package scaffold with package subdirectories and
   placeholder files.
 - `import` validates and copies a local JSONL source file into a package data

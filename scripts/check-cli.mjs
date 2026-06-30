@@ -33,6 +33,15 @@ async function main() {
     assert(help.stdout.includes(`od4a ${command}`), `help should list ${command}`);
   }
 
+  const validateSchemas = runCli(["validate-schemas"]);
+  assert(validateSchemas.status === 0, "validate-schemas command should succeed");
+
+  const validateExamples = runCli(["validate-examples"]);
+  assert(validateExamples.status === 0, "validate-examples command should succeed");
+
+  const validate = runCli(["validate"]);
+  assert(validate.status === 0, "validate command should succeed");
+
   const init = runCli(["init", packageDir]);
   assert(init.status === 0, "init command should succeed");
 

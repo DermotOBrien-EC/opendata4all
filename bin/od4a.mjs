@@ -23,18 +23,24 @@ function runNodeScript(scriptPath) {
   process.exit(result.status ?? 1);
 }
 
-function runCommand(commandArgs) {
-  const result = spawnSync("npm", commandArgs, {
-    cwd: root,
-    stdio: "inherit",
-  });
+function runNodeScripts(scriptPaths) {
+  for (const scriptPath of scriptPaths) {
+    const result = spawnSync(process.execPath, [scriptPath], {
+      cwd: root,
+      stdio: "inherit",
+    });
 
-  if (result.error) {
-    console.error(result.error.message);
-    process.exit(1);
+    if (result.error) {
+      console.error(result.error.message);
+      process.exit(1);
+    }
+
+    if (result.status !== 0) {
+      process.exit(result.status ?? 1);
+    }
   }
 
-  process.exit(result.status ?? 1);
+  process.exit(0);
 }
 
 async function initPackage(packageDir) {
@@ -197,7 +203,10 @@ switch (command) {
     await exportJsonl(args[1] ?? ".", args[2]);
     break;
   case "validate":
-    runCommand(["run", "validate"]);
+    runNodeScripts([
+      resolve(root, "scripts", "check-schemas.mjs"),
+      resolve(root, "scripts", "check-examples.mjs"),
+    ]);
     break;
   case "validate-schemas":
     runNodeScript(resolve(root, "scripts", "check-schemas.mjs"));
