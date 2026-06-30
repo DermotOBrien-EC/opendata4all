@@ -65,9 +65,11 @@ validation scripts use only the Node.js standard library.
   values are not echoed in scan, preview, package validation, manifest, or
   report output.
 - Repository secret scanning must fail on unallowlisted live-looking OpenAI,
-  AWS, GitHub, and PEM private-key credentials while printing only path, line,
-  and detector label context. Allowlisted token/private-key-looking matches are
-  limited to exact synthetic redaction canary fixture values at exact paths.
+  AWS, classic GitHub, fine-grained GitHub, and PEM private-key credentials
+  while printing only path, line, and detector label context. Allowlisted
+  token/private-key-looking matches are limited to exact synthetic redaction
+  canary fixture values at exact paths, and every allowlisted detector tuple must
+  be observed during the scan.
 - Repository policy validation must keep `package.json` private and
   dependency-free, ensure every local validation gate remains wired into
   `npm run validate`, and ensure CI runs validation without install or

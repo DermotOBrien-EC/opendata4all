@@ -39,28 +39,35 @@ const detectors = [
   },
 ];
 
-const allowlistedMatches = new Set([
-  [
-    "examples/redaction-canaries/high-risk-secret.jsonl",
-    "secret.openai_api_key",
-    ["sk", "synthetic", "redaction", "canary", "000000000000"].join("-"),
-  ].join("\0"),
-  [
-    "examples/redaction-canaries/high-risk-aws-access-key.jsonl",
-    "secret.aws_access_key",
-    ["AKIA", "SYNTHETIC", "0000000"].join(""),
-  ].join("\0"),
-  [
-    "examples/redaction-canaries/high-risk-github-token.jsonl",
-    "secret.github_token",
-    ["ghp", "syntheticredactioncanary000000"].join("_"),
-  ].join("\0"),
-  [
-    "examples/redaction-canaries/high-risk-private-key.jsonl",
-    "secret.pem_private_key",
-    ["-----BEGIN", "SYNTHETIC PRIVATE KEY-----"].join(" "),
-  ].join("\0"),
-]);
+const allowlistedMatches = [
+  {
+    path: "examples/redaction-canaries/high-risk-secret.jsonl",
+    label: "secret.openai_api_key",
+    value: ["sk", "synthetic", "redaction", "canary", "000000000000"].join("-"),
+  },
+  {
+    path: "examples/redaction-canaries/high-risk-aws-access-key.jsonl",
+    label: "secret.aws_access_key",
+    value: ["AKIA", "SYNTHETIC", "0000000"].join(""),
+  },
+  {
+    path: "examples/redaction-canaries/high-risk-github-token.jsonl",
+    label: "secret.github_token",
+    value: ["ghp", "syntheticredactioncanary000000"].join("_"),
+  },
+  {
+    path: "examples/redaction-canaries/high-risk-github-fine-grained-token.jsonl",
+    label: "secret.github_fine_grained_token",
+    value: ["github", "pat", "syntheticredactioncanary0000", "0000000000000000000000000000000000000000"].join("_"),
+  },
+  {
+    path: "examples/redaction-canaries/high-risk-private-key.jsonl",
+    label: "secret.pem_private_key",
+    value: ["-----BEGIN", "SYNTHETIC PRIVATE KEY-----"].join(" "),
+  },
+];
+const allowlistedMatchKeys = new Set(allowlistedMatches.map(({ path, label, value }) => matchKey(path, label, value)));
+const observedAllowlistedMatchKeys = new Set();
 
 function assert(condition, message) {
   if (!condition) {
@@ -101,8 +108,18 @@ function lineNumberAt(text, index) {
   return line;
 }
 
+function matchKey(path, label, value) {
+  return [path, label, value].join("\0");
+}
+
 function isAllowlisted(path, label, value) {
-  return allowlistedMatches.has([path, label, value].join("\0"));
+  const key = matchKey(path, label, value);
+  if (!allowlistedMatchKeys.has(key)) {
+    return false;
+  }
+
+  observedAllowlistedMatchKeys.add(key);
+  return true;
 }
 
 function scanFile(path) {
@@ -134,12 +151,23 @@ function scanFile(path) {
 }
 
 const findings = repoFiles().flatMap(scanFile);
+const missingAllowlistedMatches = allowlistedMatches.filter(
+  ({ path, label, value }) => !observedAllowlistedMatchKeys.has(matchKey(path, label, value)),
+);
 
-if (findings.length > 0) {
+if (findings.length > 0 || missingAllowlistedMatches.length > 0) {
   console.log("Repository secret scan: failed");
-  console.log(`Findings: ${findings.length}`);
+  if (findings.length > 0) {
+    console.log(`Findings: ${findings.length}`);
+  }
   for (const finding of findings) {
     console.log(`- ${finding.path}:${finding.line} ${finding.label}`);
+  }
+  if (missingAllowlistedMatches.length > 0) {
+    console.log(`Missing allowlisted canaries: ${missingAllowlistedMatches.length}`);
+  }
+  for (const match of missingAllowlistedMatches) {
+    console.log(`- ${match.path} ${match.label}`);
   }
   process.exit(1);
 }
