@@ -9,6 +9,7 @@ local validation, packaging, consent, risk review, and first adapter surfaces.
 - `od4a validate-schemas`
 - `od4a validate-versions`
 - `od4a validate-examples`
+- `od4a validate-templates`
 - `od4a init [package-dir]`
 - `od4a import <source-jsonl> [package-dir]`
 - `od4a import-openai-api <app-log-jsonl> [package-dir]`
@@ -34,6 +35,8 @@ local validation, packaging, consent, risk review, and first adapter surfaces.
 - `validate` runs schema, schema-version, and checked-in example validation
   locally. It is narrower than `npm run validate` and does not run CLI
   regression, repository secret, repository policy, or template checks.
+- `validate-templates` runs checked-in controlled-access policy and data-use
+  agreement template validation locally.
 - `init` creates a local package scaffold with package subdirectories and
   placeholder files.
 - `import` validates and copies a local JSONL source file into a package data

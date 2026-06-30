@@ -2181,6 +2181,7 @@ Usage:
   od4a validate-schemas
   od4a validate-versions
   od4a validate-examples
+  od4a validate-templates
   od4a inspect [package-dir]
   od4a help
 
@@ -2277,6 +2278,9 @@ switch (command) {
     break;
   case "validate-examples":
     runNodeScript(resolve(root, "scripts", "check-examples.mjs"));
+    break;
+  case "validate-templates":
+    runNodeScript(resolve(root, "scripts", "check-policy-templates.mjs"));
     break;
   case "inspect":
     await inspectPackage(args[1] ?? ".");

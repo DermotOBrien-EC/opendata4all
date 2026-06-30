@@ -190,6 +190,7 @@ async function main() {
     "validate-examples",
     "validate-package",
     "validate-schemas",
+    "validate-templates",
     "validate-versions",
     "withdraw-consent",
   ]) {
@@ -209,6 +210,13 @@ async function main() {
   const validateExamples = runCli(["validate-examples"]);
   assert(validateExamples.status === 0, "validate-examples command should succeed");
 
+  const validateTemplates = runCli(["validate-templates"]);
+  assert(validateTemplates.status === 0, "validate-templates command should succeed");
+  assert(
+    validateTemplates.stdout.includes("Validated 2 controlled-access/data-use templates."),
+    "validate-templates should run controlled-access/data-use template checks",
+  );
+
   const validate = runCli(["validate"]);
   assert(validate.status === 0, "validate command should succeed");
   assert(validate.stdout.includes("Validated 4 schema files."), "validate should run schema checks");
@@ -220,6 +228,10 @@ async function main() {
   assert(
     !validate.stdout.includes("Validated od4a CLI commands."),
     "od4a validate must not recursively invoke CLI regression checks",
+  );
+  assert(
+    !validate.stdout.includes("Validated 2 controlled-access/data-use templates."),
+    "od4a validate must not run template checks",
   );
 
   const init = runCli(["init", packageDir]);
