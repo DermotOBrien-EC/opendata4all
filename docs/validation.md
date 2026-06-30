@@ -75,13 +75,20 @@ validation scripts use only the Node.js standard library.
 
 ## Current Template Invariants
 
-- Controlled-access templates must warn that they are not legal advice.
-- Controlled-access templates must cover `controlled_research`,
-  `secure_enclave`, quarantine, manifest hashes, consent receipts, and
-  redaction reports.
-- Controlled-access templates must include restrictions on re-identification,
-  redistribution, public model training or fine-tuning, takedowns, withdrawal,
-  deletion attestation, security controls, and publication review.
+- Controlled-access policy and data-use agreement templates must keep their
+  expected top-level titles and role-critical bracketed placeholders for package
+  identifiers, steward and privacy contacts, manifest hashes, consent receipts,
+  redaction reports, recipients, security contacts, research purpose, incidents,
+  retention, and expiry or review deadlines as applicable.
+- Controlled-access policy and data-use agreement templates must warn that they
+  are not legal advice.
+- Controlled-access policy and data-use agreement templates must cover
+  `controlled_research`, `secure_enclave`, manifest hashes, consent receipts,
+  and redaction reports.
+- Controlled-access policy and data-use agreement templates must include
+  restrictions on re-identification, redistribution, public model training or
+  fine-tuning, takedowns or termination, withdrawal or retention, deletion
+  attestation, security controls, and publication review.
 
 ## Later Validation
 
