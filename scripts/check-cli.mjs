@@ -13,7 +13,33 @@ const codexHookFixturePath = join(adapterFixturesDir, "codex-hook.jsonl");
 const claudeCodeHookFixturePath = join(adapterFixturesDir, "claude-code-hook.jsonl");
 const redactionCanariesDir = join(root, "examples", "redaction-canaries");
 const highRiskSecretCanaryPath = join(redactionCanariesDir, "high-risk-secret.jsonl");
+const highRiskAwsAccessKeyCanaryPath = join(redactionCanariesDir, "high-risk-aws-access-key.jsonl");
+const highRiskGithubTokenCanaryPath = join(redactionCanariesDir, "high-risk-github-token.jsonl");
+const highRiskPrivateKeyCanaryPath = join(redactionCanariesDir, "high-risk-private-key.jsonl");
 const mediumRiskPersonalCanaryPath = join(redactionCanariesDir, "medium-risk-personal.jsonl");
+const mediumRiskEnvAssignmentCanaryPath = join(redactionCanariesDir, "medium-risk-env-assignment.jsonl");
+const highRiskRedactionCanaries = [
+  {
+    name: "openai-api-key",
+    path: highRiskSecretCanaryPath,
+    labels: ["secret.openai_api_key"],
+  },
+  {
+    name: "aws-access-key",
+    path: highRiskAwsAccessKeyCanaryPath,
+    labels: ["secret.aws_access_key"],
+  },
+  {
+    name: "github-token",
+    path: highRiskGithubTokenCanaryPath,
+    labels: ["secret.github_token"],
+  },
+  {
+    name: "private-key",
+    path: highRiskPrivateKeyCanaryPath,
+    labels: ["secret.private_key"],
+  },
+];
 
 function assert(condition, message) {
   if (!condition) {
@@ -41,6 +67,88 @@ async function readJsonlFixture(fixturePath) {
 
   assert(records.length > 0, `${fixturePath} must contain at least one JSONL record`);
   return records;
+}
+
+function stringValues(value) {
+  if (typeof value === "string") {
+    return [value];
+  }
+
+  if (Array.isArray(value)) {
+    return value.flatMap((item) => stringValues(item));
+  }
+
+  if (value && typeof value === "object") {
+    return Object.values(value).flatMap((item) => stringValues(item));
+  }
+
+  return [];
+}
+
+function assertNoRawValues(text, rawValues, message) {
+  for (const rawValue of rawValues) {
+    assert(!text.includes(rawValue), message);
+  }
+}
+
+async function assertHighRiskRedactionCanary({ canary, packageDir, reportPath }) {
+  const records = await readJsonlFixture(canary.path);
+  const rawValues = records.flatMap((record) => stringValues(record));
+  assert(rawValues.length > 0, `${canary.path} must contain raw canary string values`);
+
+  const imported = runCli(["import", canary.path, packageDir]);
+  assert(imported.status === 0, `${canary.name} import should accept valid high-risk JSONL`);
+
+  const scan = runCli(["scan"], { cwd: packageDir });
+  assert(scan.status === 2, `${canary.name} scan should fail closed when high-risk secrets are found`);
+  for (const label of canary.labels) {
+    assert(scan.stdout.includes(label), `${canary.name} scan should report ${label}`);
+  }
+  assertNoRawValues(scan.stdout, rawValues, `${canary.name} scan output must not echo detected values`);
+
+  const preview = runCli(["preview", packageDir]);
+  assert(preview.status === 0, `${canary.name} preview should summarize high-risk packages`);
+  assert(preview.stdout.includes("Decision: blocked"), `${canary.name} preview should include blocked decisions`);
+  for (const label of canary.labels) {
+    assert(preview.stdout.includes(label), `${canary.name} preview should include ${label}`);
+  }
+  assertNoRawValues(preview.stdout, rawValues, `${canary.name} preview must not echo detected values`);
+
+  const packageValidation = runCli(["validate-package", packageDir]);
+  assert(packageValidation.status === 2, `${canary.name} validate-package should fail closed on high-risk findings`);
+  assert(packageValidation.stdout.includes("Package validation: failed"), `${canary.name} package should fail`);
+  assert(packageValidation.stdout.includes("Decision: blocked"), `${canary.name} package should be blocked`);
+  assertNoRawValues(packageValidation.stdout, rawValues, `${canary.name} package validation must not echo values`);
+
+  const manifest = runCli(["manifest", packageDir]);
+  assert(manifest.status === 0, `${canary.name} manifest should write local review manifests for high-risk packages`);
+  assert(manifest.stdout.includes("Validation: failed"), `${canary.name} manifest should report failed validation`);
+  assertNoRawValues(manifest.stdout, rawValues, `${canary.name} manifest output must not echo values`);
+  const parsedManifest = JSON.parse(await readFile(join(packageDir, "metadata", "manifest.json"), "utf8"));
+  assert(parsedManifest.validation.status === "failed", `${canary.name} manifest should record failed validation`);
+  assert(
+    parsedManifest.validation.notes.includes("blocked finding"),
+    `${canary.name} manifest should explain blocked findings without raw values`,
+  );
+  assertNoRawValues(
+    JSON.stringify(parsedManifest),
+    rawValues,
+    `${canary.name} generated manifest must not include raw values`,
+  );
+
+  const report = runCli(["report", packageDir, reportPath]);
+  assert(report.status === 0, `${canary.name} report should write high-risk redaction reports`);
+  assertNoRawValues(report.stdout, rawValues, `${canary.name} report output must not echo detected values`);
+  const parsedReport = JSON.parse(await readFile(reportPath, "utf8"));
+  assert(parsedReport.decision === "blocked", `${canary.name} report should be blocked`);
+  assert(
+    parsedReport.summary.blocked_findings === canary.labels.length,
+    `${canary.name} report should count blocked findings`,
+  );
+  for (const label of canary.labels) {
+    assert(JSON.stringify(parsedReport).includes(label), `${canary.name} report should include ${label}`);
+  }
+  assertNoRawValues(JSON.stringify(parsedReport), rawValues, `${canary.name} report must not include raw values`);
 }
 
 async function main() {
@@ -429,49 +537,13 @@ async function main() {
   const claudeScan = runCli(["scan", claudePackageDir]);
   assert(claudeScan.status === 0, "scan should accept normalized Claude Code hook events");
 
-  const secretCanaryRecords = await readJsonlFixture(highRiskSecretCanaryPath);
-  const fakeSecret = secretCanaryRecords[0].text;
-  const secretReportPath = join(workDir, "secret-redaction-report.json");
-  const secretImport = runCli(["import", highRiskSecretCanaryPath, packageDir]);
-  assert(secretImport.status === 0, "import should accept valid JSONL with high-risk text");
-
-  const secretScan = runCli(["scan"], { cwd: packageDir });
-  assert(secretScan.status === 2, "scan should fail closed when high-risk secrets are found");
-  assert(secretScan.stdout.includes("secret.openai_api_key"), "scan should report the detector label");
-  assert(!secretScan.stdout.includes(fakeSecret), "scan output must not echo detected secret values");
-
-  const secretPreview = runCli(["preview", packageDir]);
-  assert(secretPreview.status === 0, "preview should summarize high-risk packages");
-  assert(secretPreview.stdout.includes("Decision: blocked"), "preview should include blocked decisions");
-  assert(secretPreview.stdout.includes("secret.openai_api_key"), "preview should include detector labels");
-  assert(!secretPreview.stdout.includes(fakeSecret), "preview must not echo detected secret values");
-
-  const secretPackageValidation = runCli(["validate-package", packageDir]);
-  assert(secretPackageValidation.status === 2, "validate-package should fail closed on high-risk findings");
-  assert(secretPackageValidation.stdout.includes("Package validation: failed"), "high-risk package should fail");
-  assert(secretPackageValidation.stdout.includes("Decision: blocked"), "high-risk package should be blocked");
-  assert(!secretPackageValidation.stdout.includes(fakeSecret), "package validation must not echo secret values");
-
-  const secretManifest = runCli(["manifest", packageDir]);
-  assert(secretManifest.status === 0, "manifest should write local review manifests for high-risk packages");
-  assert(secretManifest.stdout.includes("Validation: failed"), "manifest should report failed validation for high-risk packages");
-  assert(!secretManifest.stdout.includes(fakeSecret), "manifest output must not echo secret values");
-  const parsedSecretManifest = JSON.parse(await readFile(join(packageDir, "metadata", "manifest.json"), "utf8"));
-  assert(parsedSecretManifest.validation.status === "failed", "high-risk generated manifests should record failed validation");
-  assert(
-    parsedSecretManifest.validation.notes.includes("blocked finding"),
-    "high-risk generated manifests should explain blocked findings without raw values",
-  );
-  assert(!JSON.stringify(parsedSecretManifest).includes(fakeSecret), "generated manifests must not include raw secret values");
-
-  const secretReport = runCli(["report", packageDir, secretReportPath]);
-  assert(secretReport.status === 0, "report should write high-risk redaction reports");
-  assert(!secretReport.stdout.includes(fakeSecret), "report output must not echo detected secret values");
-  const parsedSecretReport = JSON.parse(await readFile(secretReportPath, "utf8"));
-  assert(parsedSecretReport.decision === "blocked", "high-risk report should be blocked");
-  assert(parsedSecretReport.summary.blocked_findings === 1, "high-risk report should count blocked findings");
-  assert(JSON.stringify(parsedSecretReport).includes("secret.openai_api_key"), "report should include detector class");
-  assert(!JSON.stringify(parsedSecretReport).includes(fakeSecret), "report must not include raw secret values");
+  for (const canary of highRiskRedactionCanaries) {
+    await assertHighRiskRedactionCanary({
+      canary,
+      packageDir,
+      reportPath: join(workDir, `${canary.name}-redaction-report.json`),
+    });
+  }
 
   const piiCanaryRecords = await readJsonlFixture(mediumRiskPersonalCanaryPath);
   const piiCanary = piiCanaryRecords[1];
@@ -521,6 +593,18 @@ async function main() {
     assert(!piiPackageValidation.stdout.includes(rawValue), "package validation must not echo personal values");
   }
 
+  const piiManifest = runCli(["manifest", packageDir]);
+  assert(piiManifest.status === 0, "manifest should write local review manifests for medium-risk packages");
+  assert(piiManifest.stdout.includes("Validation: passed"), "manifest should pass medium-risk packages");
+  for (const rawValue of [fakeEmail, fakeUrl, fakePath, fakeIp]) {
+    assert(!piiManifest.stdout.includes(rawValue), "manifest output must not echo personal values");
+  }
+  const parsedPiiManifest = JSON.parse(await readFile(join(packageDir, "metadata", "manifest.json"), "utf8"));
+  assert(parsedPiiManifest.validation.status === "passed", "medium-risk generated manifests should pass validation");
+  for (const rawValue of [fakeEmail, fakeUrl, fakePath, fakeIp]) {
+    assert(!JSON.stringify(parsedPiiManifest).includes(rawValue), "generated manifests must not include personal values");
+  }
+
   const piiReport = runCli(["report", packageDir]);
   assert(piiReport.status === 0, "report should write medium-risk redaction reports");
   assert(piiReport.stdout.includes("Decision: review_required"), "report should summarize review decisions");
@@ -542,6 +626,62 @@ async function main() {
   for (const rawValue of [fakeEmail, fakeUrl, fakePath, fakeIp]) {
     assert(!JSON.stringify(parsedPiiReport).includes(rawValue), "report must not include raw personal values");
   }
+
+  const envCanaryRecords = await readJsonlFixture(mediumRiskEnvAssignmentCanaryPath);
+  const envRawValues = envCanaryRecords.flatMap((record) => stringValues(record));
+  const envImport = runCli(["import", mediumRiskEnvAssignmentCanaryPath, packageDir]);
+  assert(envImport.status === 0, "import should accept valid JSONL with env-assignment canary text");
+
+  const envScan = runCli(["scan", packageDir]);
+  assert(envScan.status === 0, "env-assignment scan findings should not fail closed");
+  assert(envScan.stdout.includes("secret.env_assignment"), "scan should report secret.env_assignment");
+  assertNoRawValues(envScan.stdout, envRawValues, "scan output must not echo env-assignment values");
+
+  const envPreview = runCli(["preview"], { cwd: packageDir });
+  assert(envPreview.status === 0, "preview should summarize env-assignment packages");
+  assert(envPreview.stdout.includes("Decision: review_required"), "preview should include review decisions");
+  assert(envPreview.stdout.includes("secret.env_assignment"), "preview should include secret.env_assignment");
+  assertNoRawValues(envPreview.stdout, envRawValues, "preview must not echo env-assignment values");
+
+  const envPackageValidation = runCli(["validate-package"], { cwd: packageDir });
+  assert(envPackageValidation.status === 0, "validate-package should not fail closed on env-assignment findings");
+  assert(envPackageValidation.stdout.includes("Package validation: passed"), "env-assignment package should pass gate");
+  assert(
+    envPackageValidation.stdout.includes("Decision: review_required"),
+    "env-assignment package should require review",
+  );
+  assertNoRawValues(
+    envPackageValidation.stdout,
+    envRawValues,
+    "package validation must not echo env-assignment values",
+  );
+
+  const envManifest = runCli(["manifest", packageDir]);
+  assert(envManifest.status === 0, "manifest should write local review manifests for env-assignment packages");
+  assert(envManifest.stdout.includes("Validation: passed"), "manifest should pass env-assignment packages");
+  assertNoRawValues(envManifest.stdout, envRawValues, "manifest output must not echo env-assignment values");
+  const parsedEnvManifest = JSON.parse(await readFile(join(packageDir, "metadata", "manifest.json"), "utf8"));
+  assert(parsedEnvManifest.validation.status === "passed", "env-assignment generated manifests should pass validation");
+  assertNoRawValues(
+    JSON.stringify(parsedEnvManifest),
+    envRawValues,
+    "generated manifests must not include env-assignment values",
+  );
+
+  const envReport = runCli(["report", packageDir]);
+  assert(envReport.status === 0, "report should write env-assignment redaction reports");
+  assert(envReport.stdout.includes("Decision: review_required"), "env-assignment report should summarize decisions");
+  assertNoRawValues(envReport.stdout, envRawValues, "report output must not echo env-assignment values");
+  const parsedEnvReport = JSON.parse(await readFile(join(packageDir, "reports", "redaction-report.json"), "utf8"));
+  assert(parsedEnvReport.decision === "review_required", "env-assignment report should require review");
+  assert(parsedEnvReport.summary.blocked_findings === 0, "env-assignment report should not count blocked findings");
+  assert(parsedEnvReport.summary.redacted_findings === 0, "env-assignment report should not claim redaction");
+  assert(JSON.stringify(parsedEnvReport).includes("secret.env_assignment"), "report should include secret.env_assignment");
+  assertNoRawValues(
+    JSON.stringify(parsedEnvReport),
+    envRawValues,
+    "report must not include raw env-assignment values",
+  );
 
   await mkdir(join(packageDir, "metadata"), { recursive: true });
   const manifestJson = `${JSON.stringify({

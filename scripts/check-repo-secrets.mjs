@@ -45,6 +45,21 @@ const allowlistedMatches = new Set([
     "secret.openai_api_key",
     ["sk", "synthetic", "redaction", "canary", "000000000000"].join("-"),
   ].join("\0"),
+  [
+    "examples/redaction-canaries/high-risk-aws-access-key.jsonl",
+    "secret.aws_access_key",
+    ["AKIA", "SYNTHETIC", "0000000"].join(""),
+  ].join("\0"),
+  [
+    "examples/redaction-canaries/high-risk-github-token.jsonl",
+    "secret.github_token",
+    ["ghp", "syntheticredactioncanary000000"].join("_"),
+  ].join("\0"),
+  [
+    "examples/redaction-canaries/high-risk-private-key.jsonl",
+    "secret.pem_private_key",
+    ["-----BEGIN", "SYNTHETIC PRIVATE KEY-----"].join(" "),
+  ].join("\0"),
 ]);
 
 function assert(condition, message) {
@@ -54,7 +69,7 @@ function assert(condition, message) {
 }
 
 function repoFiles() {
-  const result = spawnSync("git", ["ls-files", "-z"], {
+  const result = spawnSync("git", ["ls-files", "--cached", "--others", "--exclude-standard", "-z"], {
     encoding: "buffer",
   });
 
