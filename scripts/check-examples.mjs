@@ -27,6 +27,10 @@ function fileByteLength(path) {
   return readFileSync(path).byteLength;
 }
 
+function readText(path) {
+  return readFileSync(path, "utf8");
+}
+
 function assert(condition, message) {
   if (!condition) {
     throw new Error(message);
@@ -50,6 +54,35 @@ for (const packageDir of examplePackages) {
   const manifestPath = join(packageDir, "metadata", "manifest.json");
   const manifest = readJson(manifestPath);
   const manifestHash = sha256File(manifestPath);
+  const readmePath = join(packageDir, "README.md");
+  const readmeText = readText(readmePath);
+  const normalizedReadme = readmeText.toLowerCase();
+
+  assert(
+    readmeText.includes(manifest.package_id),
+    `${readmePath}: README must include manifest package_id ${manifest.package_id}`
+  );
+  assert(
+    readmeText.includes(manifest.release_tier),
+    `${readmePath}: README must include manifest release_tier ${manifest.release_tier}`
+  );
+  assert(
+    normalizedReadme.includes("synthetic"),
+    `${readmePath}: README must declare the fixture is synthetic`
+  );
+  assert(
+    normalizedReadme.includes("no real donated data"),
+    `${readmePath}: README must state there is no real donated data`
+  );
+  assert(
+    normalizedReadme.includes("no secrets"),
+    `${readmePath}: README must include no-secrets wording`
+  );
+  assert(
+    normalizedReadme.includes("no private exports") ||
+      normalizedReadme.includes("no private platform exports"),
+    `${readmePath}: README must include no-private-export wording`
+  );
 
   assert(
     Array.isArray(manifest.source_adapters) &&

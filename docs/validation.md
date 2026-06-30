@@ -55,7 +55,9 @@ validation scripts use only the Node.js standard library.
 - Checked-in public-safe example packages must remain internally consistent,
   including current hashes, explicit `contains_raw_data: false`, unique event
   IDs within each JSONL file, matching adapter metadata, active consent receipts,
-  and publishable redaction reports.
+  publishable redaction reports, and README safety posture text that names the
+  package ID, release tier, synthetic status, no-real-donated-data status,
+  no-secrets status, and no-private-export status.
 - Checked-in redaction canary fixtures must keep exercising every current
   deterministic detector label: OpenAI-style tokens, AWS access keys, GitHub
   tokens, private-key headers, environment assignments, email addresses, IP
