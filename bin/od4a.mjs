@@ -171,6 +171,27 @@ const riskDetectors = [
     severity: "medium",
     pattern: /\b[A-Z][A-Z0-9_]*(?:TOKEN|SECRET|PASSWORD|API_KEY)\s*=\s*["']?[^"',\s]{8,}/,
   },
+  {
+    label: "personal.email",
+    severity: "medium",
+    pattern: /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i,
+  },
+  {
+    label: "personal.ip_address",
+    severity: "medium",
+    pattern:
+      /\b(?:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\.){3}(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\b/,
+  },
+  {
+    label: "private.full_url",
+    severity: "medium",
+    pattern: /\bhttps?:\/\/[^\s"')\]}]+/i,
+  },
+  {
+    label: "private.local_file_path",
+    severity: "medium",
+    pattern: /(?:\/Users\/|\/home\/|C:\\Users\\)[^\s"',)]+/,
+  },
 ];
 
 function collectStringValues(value, values = []) {
@@ -208,14 +229,22 @@ async function scanPackage(packageDir) {
   }
 
   const findings = new Map();
-  const lines = contents.split(/\r?\n/).filter((line) => line.trim().length > 0);
+  const physicalLines = contents.split(/\r?\n/);
+  let recordCount = 0;
 
-  for (const [index, line] of lines.entries()) {
+  for (const [index, line] of physicalLines.entries()) {
+    if (line.trim().length === 0) {
+      continue;
+    }
+
+    recordCount += 1;
+    const lineNumber = index + 1;
+
     let event;
     try {
       event = JSON.parse(line);
     } catch (error) {
-      console.error(`Invalid JSON on line ${index + 1} of ${sourcePath}`);
+      console.error(`Invalid JSON on line ${lineNumber} of ${sourcePath}`);
       console.error(error.message);
       process.exit(1);
     }
@@ -226,11 +255,11 @@ async function scanPackage(packageDir) {
           continue;
         }
 
-        const key = `${detector.label}:${index + 1}`;
+        const key = `${detector.label}:${lineNumber}`;
         findings.set(key, {
           label: detector.label,
           severity: detector.severity,
-          line: index + 1,
+          line: lineNumber,
         });
       }
     }
@@ -243,7 +272,7 @@ async function scanPackage(packageDir) {
     return left.label.localeCompare(right.label);
   });
 
-  console.log(`Scanned ${lines.length} JSONL records.`);
+  console.log(`Scanned ${recordCount} JSONL records.`);
   console.log(`Findings: ${sortedFindings.length}`);
 
   for (const finding of sortedFindings) {

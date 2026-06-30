@@ -95,6 +95,36 @@ async function main() {
   assert(secretScan.stdout.includes("secret.openai_api_key"), "scan should report the detector label");
   assert(!secretScan.stdout.includes(fakeSecret), "scan output must not echo detected secret values");
 
+  const fakeEmail = "donor@example.com";
+  const fakeUrl = "https://example.com/private/path?case=123";
+  const fakePath = "/Users/example/private-note.txt";
+  await writeFile(
+    sourcePath,
+    `${JSON.stringify({ text: "plain first record" })}\r\n\r\n${JSON.stringify({
+      email: fakeEmail,
+      url: fakeUrl,
+      path: fakePath,
+      ip: "192.0.2.10",
+    })}\r\n`,
+  );
+  const piiImport = runCli(["import", sourcePath, packageDir]);
+  assert(piiImport.status === 0, "import should accept valid JSONL with personal data");
+
+  const piiScan = runCli(["scan", packageDir]);
+  assert(piiScan.status === 0, "medium-risk scan findings should not fail closed");
+  for (const label of [
+    "personal.email",
+    "personal.ip_address",
+    "private.full_url",
+    "private.local_file_path",
+  ]) {
+    assert(piiScan.stdout.includes(label), `scan should report ${label}`);
+  }
+  assert(piiScan.stdout.includes("line 3: personal.email"), "scan should report physical JSONL line numbers");
+  for (const rawValue of [fakeEmail, fakeUrl, fakePath, "192.0.2.10"]) {
+    assert(!piiScan.stdout.includes(rawValue), "scan output must not echo personal or private values");
+  }
+
   await mkdir(join(packageDir, "metadata"), { recursive: true });
   await writeFile(
     join(packageDir, "metadata", "manifest.json"),

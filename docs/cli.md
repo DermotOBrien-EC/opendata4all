@@ -23,10 +23,11 @@ project's validation surface before any adapter or packaging workflow is added.
 - `import` validates and copies a local JSONL source file into a package data
   directory.
 - `export` copies the canonical JSONL file back out to stdout or a local file.
-- `scan` checks canonical JSONL for deterministic high-risk patterns such as
-  private keys and API tokens. It reports detector labels and line numbers, not
-  raw matched values. The command exits with status `2` when high-risk findings
-  are present.
+- `scan` checks canonical JSONL for deterministic risk patterns such as private
+  keys, API tokens, email addresses, IP addresses, full URLs, and local file
+  paths. It reports detector labels and physical JSONL line numbers, not raw
+  matched values. The command exits with status `2` when high-risk findings are
+  present.
 - `inspect` reads an OD4A package manifest from the current directory or a
   relative package directory and prints a summary without opening any network
   connection.
