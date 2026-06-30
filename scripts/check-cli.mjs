@@ -29,7 +29,7 @@ async function main() {
 
   const help = runCli(["help"]);
   assert(help.status === 0, "help command should succeed");
-  for (const command of ["init", "import", "export", "inspect", "scan", "validate"]) {
+  for (const command of ["init", "import", "export", "inspect", "report", "scan", "validate"]) {
     assert(help.stdout.includes(`od4a ${command}`), `help should list ${command}`);
   }
 
@@ -86,6 +86,7 @@ async function main() {
   assert((await readFile(exportPath, "utf8")) === jsonl, "file export should match imported JSONL");
 
   const fakeSecret = "sk-abcdefghijklmnopqrstuvwxyz0123456789AB";
+  const secretReportPath = join(workDir, "secret-redaction-report.json");
   await writeFile(sourcePath, `${JSON.stringify({ text: fakeSecret })}\n`);
   const secretImport = runCli(["import", sourcePath, packageDir]);
   assert(secretImport.status === 0, "import should accept valid JSONL with high-risk text");
@@ -94,6 +95,15 @@ async function main() {
   assert(secretScan.status === 2, "scan should fail closed when high-risk secrets are found");
   assert(secretScan.stdout.includes("secret.openai_api_key"), "scan should report the detector label");
   assert(!secretScan.stdout.includes(fakeSecret), "scan output must not echo detected secret values");
+
+  const secretReport = runCli(["report", packageDir, secretReportPath]);
+  assert(secretReport.status === 0, "report should write high-risk redaction reports");
+  assert(!secretReport.stdout.includes(fakeSecret), "report output must not echo detected secret values");
+  const parsedSecretReport = JSON.parse(await readFile(secretReportPath, "utf8"));
+  assert(parsedSecretReport.decision === "blocked", "high-risk report should be blocked");
+  assert(parsedSecretReport.summary.blocked_findings === 1, "high-risk report should count blocked findings");
+  assert(JSON.stringify(parsedSecretReport).includes("secret.openai_api_key"), "report should include detector class");
+  assert(!JSON.stringify(parsedSecretReport).includes(fakeSecret), "report must not include raw secret values");
 
   const fakeEmail = "donor@example.com";
   const fakeUrl = "https://example.com/private/path?case=123";
@@ -123,6 +133,28 @@ async function main() {
   assert(piiScan.stdout.includes("line 3: personal.email"), "scan should report physical JSONL line numbers");
   for (const rawValue of [fakeEmail, fakeUrl, fakePath, "192.0.2.10"]) {
     assert(!piiScan.stdout.includes(rawValue), "scan output must not echo personal or private values");
+  }
+
+  const piiReport = runCli(["report", packageDir]);
+  assert(piiReport.status === 0, "report should write medium-risk redaction reports");
+  assert(piiReport.stdout.includes("Decision: review_required"), "report should summarize review decisions");
+  const parsedPiiReport = JSON.parse(await readFile(join(packageDir, "reports", "redaction-report.json"), "utf8"));
+  assert(parsedPiiReport.schema_version === "0.1.0", "report should declare schema version");
+  assert(/^sha256:[a-f0-9]{64}$/.test(parsedPiiReport.input_hash), "report should include input hash");
+  assert(/^sha256:[a-f0-9]{64}$/.test(parsedPiiReport.output_hash), "report should include output hash");
+  assert(parsedPiiReport.decision === "review_required", "medium-risk report should require review");
+  assert(parsedPiiReport.summary.blocked_findings === 0, "medium-risk report should not count blocked findings");
+  assert(parsedPiiReport.summary.redacted_findings === 0, "scan report should not claim redaction");
+  for (const label of [
+    "personal.email",
+    "personal.ip_address",
+    "private.full_url",
+    "private.local_file_path",
+  ]) {
+    assert(JSON.stringify(parsedPiiReport).includes(label), `report should include ${label}`);
+  }
+  for (const rawValue of [fakeEmail, fakeUrl, fakePath, "192.0.2.10"]) {
+    assert(!JSON.stringify(parsedPiiReport).includes(rawValue), "report must not include raw personal values");
   }
 
   await mkdir(join(packageDir, "metadata"), { recursive: true });
