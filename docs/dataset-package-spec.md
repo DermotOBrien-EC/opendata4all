@@ -47,6 +47,12 @@ files, files that omit an explicit `contains_raw_data: false`, failed
 validation, stale file checksums, non-active consent, or non-publishable
 redaction reports. It is not an upload or publication command.
 
+`od4a derive-tables` can generate a local `data/tables/events.jsonl` projection
+from canonical OD4A JSONL. The derived table keeps event metadata, source,
+actor, consent, risk, data-kind, release-level, and text-count fields without
+copying raw message text or tool command strings. It is intended as the stable
+dependency-free table shape that a later Parquet writer can encode.
+
 ## Required Manifest Concepts
 
 - Package ID and version.

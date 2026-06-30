@@ -1385,6 +1385,104 @@ async function writeHfSample(packageDir, outputDir) {
   console.log(`Files copied: ${copiedPaths.size}`);
 }
 
+async function readCanonicalEvents(packageDir) {
+  const eventsPath = resolve(process.cwd(), packageDir, "data", "jsonl", "events.jsonl");
+
+  let contents;
+  try {
+    contents = await readFile(eventsPath);
+  } catch (error) {
+    console.error(`Unable to read canonical JSONL at ${eventsPath}`);
+    console.error(error.message);
+    process.exit(1);
+  }
+
+  const lines = jsonlLines(contents);
+  if (lines.length === 0) {
+    console.error(`Canonical JSONL is empty at ${eventsPath}`);
+    process.exit(1);
+  }
+
+  const events = [];
+  for (const [index, line] of lines.entries()) {
+    try {
+      events.push(JSON.parse(line));
+    } catch (error) {
+      console.error(`Invalid JSON on record ${index + 1} of ${eventsPath}`);
+      console.error(error.message);
+      process.exit(1);
+    }
+  }
+
+  return { events, eventsPath };
+}
+
+function textPartStats(data) {
+  let count = 0;
+  let charCount = 0;
+
+  if (!Array.isArray(data?.parts)) {
+    return { count, charCount };
+  }
+
+  for (const part of data.parts) {
+    if (part?.type === "text" && typeof part.text === "string") {
+      count += 1;
+      charCount += part.text.length;
+    }
+  }
+
+  return { count, charCount };
+}
+
+function joinedList(value) {
+  return Array.isArray(value) ? value.map((item) => String(item)).sort().join("|") : "";
+}
+
+function derivedEventRow(event) {
+  const stats = textPartStats(event.data);
+
+  return {
+    schema_version: "0.1.0",
+    table: "events",
+    event_id: event.event_id ?? "",
+    event_type: event.event_type ?? "",
+    event_time: event.event_time ?? "",
+    conversation_id: event.conversation_id ?? "",
+    turn_id: event.turn_id ?? "",
+    sequence: Number.isInteger(event.sequence) ? event.sequence : null,
+    source_adapter: event.source?.adapter_name ?? "",
+    source_capture_method: event.source?.capture_method ?? "",
+    actor_type: event.actor?.type ?? "",
+    actor_role: event.actor?.role ?? "",
+    consent_status: event.consent?.status ?? "",
+    consent_scope: joinedList(event.consent?.scope),
+    risk_severity: event.risk?.severity ?? "",
+    risk_score: typeof event.risk?.score === "number" ? event.risk.score : null,
+    risk_labels: joinedList(event.risk?.labels),
+    data_kind: event.data?.kind ?? "",
+    content_release_level: event.data?.content_release_level ?? "",
+    text_part_count: stats.count,
+    text_char_count: stats.charCount,
+    has_tool_command: typeof event.data?.command === "string",
+  };
+}
+
+async function writeDerivedTables(packageDir, outputDir) {
+  const packageRoot = resolve(process.cwd(), packageDir);
+  const targetRoot = outputDir ? resolve(process.cwd(), outputDir) : resolve(packageRoot, "data", "tables");
+  const targetPath = resolve(targetRoot, "events.jsonl");
+  const { events } = await readCanonicalEvents(packageDir);
+  const rows = events.map(derivedEventRow);
+
+  await mkdir(targetRoot, { recursive: true });
+  await writeFile(targetPath, `${rows.map((row) => JSON.stringify(row)).join("\n")}\n`);
+
+  console.log(`Wrote derived event table to ${targetPath}`);
+  console.log(`Rows: ${rows.length}`);
+  console.log("Raw text included: no");
+}
+
 const riskDetectors = [
   {
     label: "secret.private_key",
@@ -2025,6 +2123,7 @@ Usage:
   od4a manifest [package-dir]
   od4a dataset-card [package-dir] [output-md]
   od4a hf-sample [package-dir] [output-dir]
+  od4a derive-tables [package-dir] [output-dir]
   od4a scan [package-dir]
   od4a report [package-dir] [output-json]
   od4a preview [package-dir]
@@ -2043,7 +2142,8 @@ package scaffolding, JSONL import/export, first adapter normalization, risk
 scanning, redaction reporting, preview summaries, fail-closed package
 validation, local manifest and dataset-card generation, draft consent receipt
 generation, consent validation, withdrawal records, local Hugging Face sample
-materialization, and manifest inspection.
+materialization, raw-text-free derived table generation, and manifest
+inspection.
 `);
 }
 
@@ -2090,6 +2190,9 @@ switch (command) {
     break;
   case "hf-sample":
     await writeHfSample(args[1] ?? ".", args[2] ?? "hf-sample");
+    break;
+  case "derive-tables":
+    await writeDerivedTables(args[1] ?? ".", args[2]);
     break;
   case "scan":
     await scanPackage(args[1] ?? ".");

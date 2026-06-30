@@ -36,6 +36,8 @@ validation scripts use only the Node.js standard library.
   public release with passed validation, active consent, publishable redaction
   reports, current checksums, and `contains_raw_data: false` declared for every
   copied file.
+- Local derived table generation must preserve canonical event row counts while
+  excluding raw message text and tool command strings from table output.
 
 ## Current Template Invariants
 

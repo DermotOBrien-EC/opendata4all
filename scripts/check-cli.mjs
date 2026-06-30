@@ -30,12 +30,14 @@ async function main() {
   const packageDir = join(workDir, "package");
   const openAiPackageDir = join(workDir, "openai-package");
   const openAiLogPath = join(workDir, "openai-api-log.jsonl");
+  const derivedTablesDir = join(workDir, "derived-tables");
   const hfSampleDir = join(workDir, "hf-sample");
   const blockedHfSampleDir = join(workDir, "blocked-hf-sample");
   const missingRawFlagPackageDir = join(workDir, "missing-raw-flag-package");
   const missingRawFlagHfSampleDir = join(workDir, "missing-raw-flag-hf-sample");
   const codexPackageDir = join(workDir, "codex-package");
   const codexHookPath = join(workDir, "codex-hook-log.jsonl");
+  const codexDerivedTablesDir = join(workDir, "codex-derived-tables");
   const claudePackageDir = join(workDir, "claude-package");
   const claudeHookPath = join(workDir, "claude-code-hook-log.jsonl");
   const sourcePath = join(workDir, "records.jsonl");
@@ -47,6 +49,7 @@ async function main() {
   for (const command of [
     "consent-draft",
     "dataset-card",
+    "derive-tables",
     "init",
     "import",
     "import-claude-code-hook",
@@ -229,6 +232,36 @@ async function main() {
     assert(!openAiCardText.includes(rawValue), "dataset-card must not include raw event text");
   }
 
+  const derivedTables = runCli(["derive-tables", openAiPackageDir, derivedTablesDir]);
+  assert(derivedTables.status === 0, "derive-tables command should succeed");
+  assert(derivedTables.stdout.includes("Raw text included: no"), "derive-tables should summarize raw-text policy");
+  const derivedEventText = await readFile(join(derivedTablesDir, "events.jsonl"), "utf8");
+  const derivedEventRows = derivedEventText
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line));
+  assert(derivedEventRows.length === openAiEvents.length, "derive-tables should preserve event row count");
+  assert(
+    derivedEventRows.every((row) => row.table === "events" && row.schema_version === "0.1.0"),
+    "derive-tables should write versioned event table rows",
+  );
+  assert(
+    derivedEventRows.some((row) => row.text_part_count === 1 && row.text_char_count > 0),
+    "derive-tables should include text count metrics",
+  );
+  assert(
+    derivedEventRows.every((row) => !("text" in row) && !("command" in row)),
+    "derive-tables should not include raw text or command fields",
+  );
+  for (const rawValue of [
+    "Summarize consent requirements.",
+    "Use explicit, revocable consent.",
+    "Private app internals and undocumented storage.",
+  ]) {
+    assert(!derivedEventText.includes(rawValue), "derived tables must not include raw event text");
+    assert(!derivedTables.stdout.includes(rawValue), "derive-tables output must not echo raw event text");
+  }
+
   const blockedHfSample = runCli(["hf-sample", openAiPackageDir, blockedHfSampleDir]);
   assert(blockedHfSample.status === 1, "hf-sample should reject local-review packages");
   assert(
@@ -361,6 +394,26 @@ async function main() {
   }
   const codexScan = runCli(["scan", codexPackageDir]);
   assert(codexScan.status === 0, "scan should accept normalized Codex hook events");
+  const codexDerivedTables = runCli(["derive-tables", codexPackageDir, codexDerivedTablesDir]);
+  assert(codexDerivedTables.status === 0, "derive-tables should accept command-bearing Codex hook events");
+  const codexDerivedEventText = await readFile(join(codexDerivedTablesDir, "events.jsonl"), "utf8");
+  const codexDerivedRows = codexDerivedEventText
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line));
+  assert(codexDerivedRows.length === codexEvents.length, "derive-tables should preserve Codex hook row count");
+  assert(
+    codexDerivedRows.some(
+      (row) => row.data_kind === "tool_event" && row.actor_type === "tool" && row.has_tool_command === true,
+    ),
+    "derive-tables should project command-bearing tool metadata",
+  );
+  assert(
+    codexDerivedRows.every((row) => !("command" in row)),
+    "derive-tables should not include command fields for command-bearing rows",
+  );
+  assert(!codexDerivedEventText.includes("npm run validate"), "derived tables must not include tool command text");
+  assert(!codexDerivedTables.stdout.includes("npm run validate"), "derive-tables output must not echo tool command text");
 
   const privateClaudeTranscriptPath = "/Users/example/.claude/private/transcript.jsonl";
   const privateClaudeEnvValue = "ANTHROPIC_API_KEY=sk-ant-example-private-value";

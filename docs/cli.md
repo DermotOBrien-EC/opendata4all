@@ -17,6 +17,7 @@ local validation, packaging, consent, risk review, and first adapter surfaces.
 - `od4a manifest [package-dir]`
 - `od4a dataset-card [package-dir] [output-md]`
 - `od4a hf-sample [package-dir] [output-dir]`
+- `od4a derive-tables [package-dir] [output-dir]`
 - `od4a scan [package-dir]`
 - `od4a report [package-dir] [output-json]`
 - `od4a preview [package-dir]`
@@ -69,6 +70,12 @@ local validation, packaging, consent, risk review, and first adapter surfaces.
   non-active-consent, and non-publishable-redaction packages. Every copied file
   must declare `contains_raw_data: false`. It does not upload, publish, or
   contact Hugging Face.
+- `derive-tables` writes a local `data/tables/events.jsonl` derived event table
+  or an equivalent caller-supplied output directory. The table contains stable
+  event metadata, source, actor, consent, risk, data-kind, release-level, and
+  text-count fields, but it does not copy raw message text or tool command
+  strings. This is a dependency-free local projection for later analytics and
+  Parquet conversion.
 - `scan` checks canonical JSONL for deterministic risk patterns such as private
   keys, API tokens, email addresses, IP addresses, full URLs, and local file
   paths. It reports detector labels and physical JSONL line numbers, not raw
@@ -96,5 +103,5 @@ local validation, packaging, consent, risk review, and first adapter surfaces.
   connection.
 - The initial CLI does not publish, upload, or connect to external services.
 - All output should remain free of raw donated data.
-- Future commands such as `redact` and `package` will build on the same
-  local-first contract.
+- Future commands such as `redact`, `package`, and Parquet writing will build on
+  the same local-first contract.
