@@ -52,9 +52,10 @@ validation scripts use only the Node.js standard library.
   passing against checked-in synthetic JSONL fixtures, including privacy canaries
   that prove private transcript paths, environment values, working directories,
   and Claude Code tool input file paths are not copied into normalized events.
-- Checked-in distributable example packages must cover `public_release`,
-  `controlled_research`, and `reproducibility_snapshot` tiers and remain
-  internally consistent, including current hashes, explicit
+- Checked-in distributable example validation must cover every manifest-bearing
+  package directory under `examples/`, include `public_release`,
+  `controlled_research`, and `reproducibility_snapshot` tiers, and keep those
+  packages internally consistent, including current hashes, explicit
   `contains_raw_data: false`, unique event IDs within each JSONL file, matching
   adapter metadata, active consent receipts, and README safety posture text that
   names the package ID, release tier, synthetic status, no-real-donated-data

@@ -1,7 +1,8 @@
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
+const examplesDir = "examples";
 const examplePackages = [
   "examples/controlled-research-package",
   "examples/minimal-package",
@@ -45,6 +46,61 @@ function assert(condition, message) {
   }
 }
 
+function discoverExamplePackages() {
+  return readdirSync(examplesDir, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => ({
+      id: `${examplesDir}/${entry.name}`,
+      path: join(examplesDir, entry.name),
+    }))
+    .filter((packageDir) =>
+      existsSync(join(packageDir.path, "metadata", "manifest.json"))
+    )
+    .map((packageDir) => packageDir.id)
+    .sort();
+}
+
+function duplicateValues(values) {
+  const seen = new Set();
+  const duplicates = new Set();
+
+  for (const value of values) {
+    if (seen.has(value)) {
+      duplicates.add(value);
+    }
+    seen.add(value);
+  }
+
+  return [...duplicates].sort();
+}
+
+function assertExamplePackageCoverage() {
+  const discoveredPackages = discoverExamplePackages();
+  const configuredPackages = [...examplePackages].sort();
+  const discoveredSet = new Set(discoveredPackages);
+  const configuredSet = new Set(configuredPackages);
+  const duplicates = duplicateValues(examplePackages);
+  const missing = discoveredPackages.filter(
+    (packageDir) => !configuredSet.has(packageDir)
+  );
+  const extra = configuredPackages.filter(
+    (packageDir) => !discoveredSet.has(packageDir)
+  );
+
+  assert(
+    duplicates.length === 0,
+    `examplePackages must not contain duplicate package dir(s): ${duplicates.join(", ")}`
+  );
+  assert(
+    missing.length === 0,
+    `examplePackages must include every examples/* package with metadata/manifest.json; missing: ${missing.join(", ")}`
+  );
+  assert(
+    extra.length === 0,
+    `examplePackages must only include examples/* packages with metadata/manifest.json; extra: ${extra.join(", ")}`
+  );
+}
+
 function isSha256Digest(value) {
   return typeof value === "string" && /^sha256:[0-9a-f]{64}$/.test(value);
 }
@@ -75,6 +131,8 @@ function eventSourceMatchesManifestAdapter(source, manifestAdapter) {
 }
 
 const releaseTiers = new Set();
+
+assertExamplePackageCoverage();
 
 for (const packageDir of examplePackages) {
   const manifestPath = join(packageDir, "metadata", "manifest.json");
