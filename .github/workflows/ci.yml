@@ -25,6 +25,7 @@ jobs:
       - name: Check validation script syntax
         run: |
           node --check scripts/check-schemas.mjs
+          node --check scripts/check-schema-versions.mjs
           node --check scripts/check-examples.mjs
           node --check scripts/check-repo-secrets.mjs
           node --check scripts/check-repo-policy.mjs

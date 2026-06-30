@@ -9,7 +9,8 @@ npm run validate
 ```
 
 It checks that all schema files parse as JSON, that the current privacy and
-governance invariants remain represented in the schemas, that checked-in
+governance invariants remain represented in the schemas, that schema files and
+checked-in package artifacts stay on the supported schema version, that checked-in
 example packages are internally consistent, that the local CLI commands keep
 working against checked-in adapter fixtures and disposable packages, that
 repository text files do not contain unallowlisted live-looking credentials, and
@@ -35,6 +36,8 @@ validation scripts use only the Node.js standard library.
 - Controlled, public, and reproducibility releases cannot include raw-data files.
 - Controlled, public, and reproducibility releases must reference consent
   receipts and redaction reports.
+- Schema definitions and checked-in example package artifacts must use the
+  current supported `schema_version` value, `0.1.0`.
 - Local Hugging Face sample generation must fail closed unless the package is a
   public release with passed validation, active consent, publishable redaction
   reports, current checksums, and `contains_raw_data: false` declared for every
@@ -81,5 +84,5 @@ validation scripts use only the Node.js standard library.
 ## Later Validation
 
 Later milestones should add full JSON Schema instance validation, broader
-example fixtures, schema migration tests, broader redaction policy matrices,
-broader scanning policy checks, and signed release checks.
+example fixtures, broader migration-compatibility coverage, broader redaction
+policy matrices, broader scanning policy checks, and signed release checks.

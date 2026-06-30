@@ -14,6 +14,7 @@ const dependencySections = [
 
 const expectedValidationScripts = {
   "validate:schemas": "node scripts/check-schemas.mjs",
+  "validate:versions": "node scripts/check-schema-versions.mjs",
   "validate:examples": "node scripts/check-examples.mjs",
   "validate:secrets": "node scripts/check-repo-secrets.mjs",
   "validate:policy": "node scripts/check-repo-policy.mjs",
@@ -23,6 +24,7 @@ const expectedValidationScripts = {
 
 const expectedValidateSteps = [
   "npm run validate:schemas",
+  "npm run validate:versions",
   "npm run validate:examples",
   "npm run validate:secrets",
   "npm run validate:policy",
@@ -98,6 +100,10 @@ function validatePackageJson() {
 function validateCiWorkflow() {
   const workflowText = readFileSync(ciWorkflowPath, "utf8");
 
+  assert(
+    workflowText.includes("node --check scripts/check-schema-versions.mjs"),
+    "CI syntax checks must include scripts/check-schema-versions.mjs",
+  );
   assert(
     workflowText.includes("node --check scripts/check-repo-policy.mjs"),
     "CI syntax checks must include scripts/check-repo-policy.mjs",
