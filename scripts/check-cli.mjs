@@ -42,6 +42,7 @@ async function main() {
   assert(help.status === 0, "help command should succeed");
   for (const command of [
     "consent-draft",
+    "dataset-card",
     "init",
     "import",
     "import-claude-code-hook",
@@ -207,6 +208,21 @@ async function main() {
   );
   assert(openAiManifestFile.row_count === openAiEvents.length, "generated manifests should include JSONL row count");
   assert(openAiManifestFile.contains_raw_data === true, "generated local review manifests should fail closed on raw data");
+  const openAiDatasetCard = runCli(["dataset-card", openAiPackageDir]);
+  assert(openAiDatasetCard.status === 0, "dataset-card command should succeed");
+  assert(openAiDatasetCard.stdout.includes("Release tier: local_review"), "dataset-card should summarize release tier");
+  const openAiCardText = await readFile(join(openAiPackageDir, "metadata", "dataset-card.md"), "utf8");
+  assert(openAiCardText.includes("# od4a-openai-package"), "dataset-card should include package id");
+  assert(openAiCardText.includes("od4a-openai-api-app-log"), "dataset-card should include source adapter metadata");
+  assert(openAiCardText.includes("Files marked as raw data: 1"), "dataset-card should summarize raw file count");
+  assert(openAiCardText.includes("Local review only"), "dataset-card should warn about local-review packages");
+  for (const rawValue of [
+    "Summarize consent requirements.",
+    "Use explicit, revocable consent.",
+    "Private app internals and undocumented storage.",
+  ]) {
+    assert(!openAiCardText.includes(rawValue), "dataset-card must not include raw event text");
+  }
 
   const privateTranscriptPath = "/Users/example/.codex/private/transcript.jsonl";
   const privateEnvValue = "OPENAI_API_KEY=sk-abcdefghijklmnopqrstuvwxyz0123456789AB";

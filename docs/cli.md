@@ -15,6 +15,7 @@ local validation, packaging, consent, risk review, and first adapter surfaces.
 - `od4a import-claude-code-hook <hook-jsonl> [package-dir]`
 - `od4a export [package-dir] [output-jsonl]`
 - `od4a manifest [package-dir]`
+- `od4a dataset-card [package-dir] [output-md]`
 - `od4a scan [package-dir]`
 - `od4a report [package-dir] [output-json]`
 - `od4a preview [package-dir]`
@@ -55,6 +56,11 @@ local validation, packaging, consent, risk review, and first adapter surfaces.
   present in OD4A events, consent and redaction report references, and local
   validation status. Generated manifests default to `local_review`, mark the
   canonical JSONL file as containing raw data, and are not publication approval.
+- `dataset-card` writes `metadata/dataset-card.md` from the package manifest.
+  It summarizes package metadata, file checksums, source adapters, consent and
+  redaction references, license/access terms, and safety notes without rendering
+  raw event text. Generated cards are local metadata artifacts and are not
+  publication approval.
 - `scan` checks canonical JSONL for deterministic risk patterns such as private
   keys, API tokens, email addresses, IP addresses, full URLs, and local file
   paths. It reports detector labels and physical JSONL line numbers, not raw

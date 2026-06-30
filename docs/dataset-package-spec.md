@@ -34,6 +34,11 @@ checksums, byte counts, row counts, adapter metadata, and validation status. It
 marks canonical JSONL as raw local-review data and does not create a signed,
 publishable release manifest.
 
+`od4a dataset-card` can generate a local `metadata/dataset-card.md` from the
+manifest. The generated card summarizes metadata, consent and redaction
+references, source adapters, license/access terms, and safety notes without
+including raw interaction text.
+
 ## Required Manifest Concepts
 
 - Package ID and version.
