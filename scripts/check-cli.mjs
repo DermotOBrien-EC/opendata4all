@@ -7,6 +7,10 @@ import { join, resolve } from "node:path";
 
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const cliPath = resolve(root, "bin", "od4a.mjs");
+const adapterFixturesDir = join(root, "examples", "adapter-fixtures");
+const openAiApiFixturePath = join(adapterFixturesDir, "openai-api-app-log.jsonl");
+const codexHookFixturePath = join(adapterFixturesDir, "codex-hook.jsonl");
+const claudeCodeHookFixturePath = join(adapterFixturesDir, "claude-code-hook.jsonl");
 
 function assert(condition, message) {
   if (!condition) {
@@ -29,17 +33,14 @@ async function main() {
   const workDir = await mkdtemp(join(tmpdir(), "od4a-cli-"));
   const packageDir = join(workDir, "package");
   const openAiPackageDir = join(workDir, "openai-package");
-  const openAiLogPath = join(workDir, "openai-api-log.jsonl");
   const derivedTablesDir = join(workDir, "derived-tables");
   const hfSampleDir = join(workDir, "hf-sample");
   const blockedHfSampleDir = join(workDir, "blocked-hf-sample");
   const missingRawFlagPackageDir = join(workDir, "missing-raw-flag-package");
   const missingRawFlagHfSampleDir = join(workDir, "missing-raw-flag-hf-sample");
   const codexPackageDir = join(workDir, "codex-package");
-  const codexHookPath = join(workDir, "codex-hook-log.jsonl");
   const codexDerivedTablesDir = join(workDir, "codex-derived-tables");
   const claudePackageDir = join(workDir, "claude-package");
-  const claudeHookPath = join(workDir, "claude-code-hook-log.jsonl");
   const sourcePath = join(workDir, "records.jsonl");
   const exportPath = join(workDir, "exported.jsonl");
   const jsonl = '{"id":1}\r\n\r\n{"id":2}\r\n';
@@ -129,35 +130,7 @@ async function main() {
   assert(exportedFile.status === 0, "file export should succeed");
   assert((await readFile(exportPath, "utf8")) === jsonl, "file export should match imported JSONL");
 
-  await writeFile(
-    openAiLogPath,
-    `${JSON.stringify({
-      request_id: "req_001",
-      conversation_id: "conv_001",
-      created_at: "2026-06-30T08:15:00.000Z",
-      messages: [
-        {
-          role: "user",
-          content: "Summarize consent requirements.",
-        },
-        {
-          role: "assistant",
-          content: [{ type: "output_text", text: "Use explicit, revocable consent." }],
-        },
-      ],
-    })}\n${JSON.stringify({
-      id: "resp_002",
-      created: 1782807300,
-      input: "What should adapters avoid?",
-      output_text: "Private app internals and undocumented storage.",
-    })}\n${JSON.stringify({
-      id: "resp_002",
-      created: 1782807300,
-      input: "What should adapters avoid?",
-      output_text: "Private app internals and undocumented storage.",
-    })}\n`,
-  );
-  const openAiImport = runCli(["import-openai-api", openAiLogPath, openAiPackageDir]);
+  const openAiImport = runCli(["import-openai-api", openAiApiFixturePath, openAiPackageDir]);
   assert(openAiImport.status === 0, "import-openai-api command should succeed");
   const openAiEventsPath = join(openAiPackageDir, "data", "jsonl", "events.jsonl");
   const openAiEventText = await readFile(openAiEventsPath, "utf8");
@@ -352,43 +325,8 @@ async function main() {
   );
 
   const privateTranscriptPath = "/Users/example/.codex/private/transcript.jsonl";
-  const privateEnvValue = "OPENAI_API_KEY=sk-abcdefghijklmnopqrstuvwxyz0123456789AB";
-  await writeFile(
-    codexHookPath,
-    `${JSON.stringify({
-      hook_event_name: "UserPromptSubmit",
-      session_id: "codex-session-001",
-      timestamp: "2026-06-30T09:00:00.000Z",
-      prompt: "Review this local slice.",
-      transcript_path: privateTranscriptPath,
-      environment: {
-        OPENAI_API_KEY: privateEnvValue,
-      },
-    })}\n${JSON.stringify({
-      hook_event_name: "PreToolUse",
-      session_id: "codex-session-001",
-      timestamp: "2026-06-30T09:01:00.000Z",
-      tool_name: "shell",
-      command: "npm run validate",
-      decision: "allow",
-      cwd: "/Users/example/private/repo",
-      env: {
-        OPENAI_API_KEY: privateEnvValue,
-      },
-    })}\n${JSON.stringify({
-      hook_event_name: "PreToolUse",
-      session_id: "codex-session-001",
-      timestamp: "2026-06-30T09:01:00.000Z",
-      tool_name: "shell",
-      command: "npm run validate",
-      decision: "allow",
-      cwd: "/Users/example/private/repo",
-      env: {
-        OPENAI_API_KEY: privateEnvValue,
-      },
-    })}\n`,
-  );
-  const codexImport = runCli(["import-codex-hook", codexHookPath, codexPackageDir]);
+  const privateEnvValue = "synthetic-openai-env-canary";
+  const codexImport = runCli(["import-codex-hook", codexHookFixturePath, codexPackageDir]);
   assert(codexImport.status === 0, "import-codex-hook command should succeed");
   const codexEventText = await readFile(join(codexPackageDir, "data", "jsonl", "events.jsonl"), "utf8");
   const codexEvents = codexEventText
@@ -438,50 +376,9 @@ async function main() {
   assert(!codexDerivedTables.stdout.includes("npm run validate"), "derive-tables output must not echo tool command text");
 
   const privateClaudeTranscriptPath = "/Users/example/.claude/private/transcript.jsonl";
-  const privateClaudeEnvValue = "ANTHROPIC_API_KEY=sk-ant-example-private-value";
+  const privateClaudeEnvValue = "synthetic-anthropic-env-canary";
   const privateClaudePath = "/Users/example/private/claude-repo";
-  await writeFile(
-    claudeHookPath,
-    `${JSON.stringify({
-      hook_event_name: "UserPromptSubmit",
-      session_id: "claude-session-001",
-      timestamp: "2026-06-30T10:00:00.000Z",
-      prompt: "Check the package manifest.",
-      transcript_path: privateClaudeTranscriptPath,
-      environment: {
-        ANTHROPIC_API_KEY: privateClaudeEnvValue,
-      },
-    })}\n${JSON.stringify({
-      hook_event_name: "PreToolUse",
-      session_id: "claude-session-001",
-      timestamp: "2026-06-30T10:01:00.000Z",
-      tool_name: "Bash",
-      tool_input: {
-        command: "npm run validate",
-        file_path: "/Users/example/private/secret.ts",
-      },
-      decision: "allow",
-      cwd: privateClaudePath,
-      env: {
-        ANTHROPIC_API_KEY: privateClaudeEnvValue,
-      },
-    })}\n${JSON.stringify({
-      hook_event_name: "PreToolUse",
-      session_id: "claude-session-001",
-      timestamp: "2026-06-30T10:01:00.000Z",
-      tool_name: "Bash",
-      tool_input: {
-        command: "npm run validate",
-        file_path: "/Users/example/private/secret.ts",
-      },
-      decision: "allow",
-      cwd: privateClaudePath,
-      env: {
-        ANTHROPIC_API_KEY: privateClaudeEnvValue,
-      },
-    })}\n`,
-  );
-  const claudeImport = runCli(["import-claude-code-hook", claudeHookPath, claudePackageDir]);
+  const claudeImport = runCli(["import-claude-code-hook", claudeCodeHookFixturePath, claudePackageDir]);
   assert(claudeImport.status === 0, "import-claude-code-hook command should succeed");
   const claudeEventText = await readFile(join(claudePackageDir, "data", "jsonl", "events.jsonl"), "utf8");
   const claudeEvents = claudeEventText

@@ -11,8 +11,8 @@ npm run validate
 It checks that all schema files parse as JSON, that the current privacy and
 governance invariants remain represented in the schemas, that checked-in
 example packages are internally consistent, that the local CLI commands keep
-working against disposable fixtures, and that controlled-access policy templates
-keep required donor-protection guardrails.
+working against checked-in adapter fixtures and disposable packages, and that
+controlled-access policy templates keep required donor-protection guardrails.
 
 The CI workflow runs the same command on pull requests and pushes to `main`.
 The workflow does not require dependency installation because the CLI and
@@ -42,6 +42,10 @@ validation scripts use only the Node.js standard library.
 - Local derived table schema sidecars must declare `raw_data_included: false`
   and describe derived metric columns such as text counts and tool-command
   presence without storing raw values.
+- OpenAI API app-log, Codex hook, and Claude Code hook adapter imports must keep
+  passing against checked-in synthetic JSONL fixtures, including privacy canaries
+  that prove private transcript paths, environment values, working directories,
+  and Claude Code tool input file paths are not copied into normalized events.
 
 ## Current Template Invariants
 
@@ -55,6 +59,6 @@ validation scripts use only the Node.js standard library.
 
 ## Later Validation
 
-Later milestones should add full JSON Schema instance validation, example
-fixtures, schema migration tests, redaction canary tests, adapter fixture tests,
-dependency scanning, secret scanning, and signed release checks.
+Later milestones should add full JSON Schema instance validation, broader
+example fixtures, schema migration tests, redaction canary tests, dependency
+scanning, secret scanning, and signed release checks.
