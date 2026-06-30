@@ -29,6 +29,11 @@ od4a-package/
 
 Raw data is not included in publishable packages by default.
 
+`od4a manifest` can generate a local-review `metadata/manifest.json` with
+checksums, byte counts, row counts, adapter metadata, and validation status. It
+marks canonical JSONL as raw local-review data and does not create a signed,
+publishable release manifest.
+
 ## Required Manifest Concepts
 
 - Package ID and version.

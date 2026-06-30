@@ -3,7 +3,7 @@ import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
-import { dirname, resolve } from "node:path";
+import { basename, dirname, resolve } from "node:path";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, "..");
@@ -787,6 +787,171 @@ async function exportJsonl(packageDir, outputPath) {
   process.stdout.write(contents);
 }
 
+function safePackageId(packageRoot) {
+  const stem = basename(packageRoot).toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "");
+  return stem.length > 0 ? `od4a-${stem}` : "od4a-package";
+}
+
+function jsonlLines(contents) {
+  return contents
+    .toString("utf8")
+    .split(/\r?\n/)
+    .filter((line) => line.trim().length > 0);
+}
+
+function adapterFromEvent(event) {
+  if (!event?.source || typeof event.source !== "object") {
+    return null;
+  }
+
+  if (!isNonEmptyString(event.source.adapter_name) || !isNonEmptyString(event.source.adapter_version)) {
+    return null;
+  }
+
+  return {
+    name: event.source.adapter_name,
+    version: event.source.adapter_version,
+    ...(isNonEmptyString(event.source.capture_method) ? { capture_method: event.source.capture_method } : {}),
+  };
+}
+
+function inferSourceAdapters(events) {
+  const adapters = new Map();
+
+  for (const event of events) {
+    const adapter = adapterFromEvent(event);
+    if (!adapter) {
+      continue;
+    }
+
+    const key = `${adapter.name}:${adapter.version}:${adapter.capture_method ?? ""}`;
+    adapters.set(key, adapter);
+  }
+
+  if (adapters.size > 0) {
+    return [...adapters.values()].sort((left, right) => left.name.localeCompare(right.name));
+  }
+
+  return [
+    {
+      name: "od4a-manual-jsonl",
+      version: "0.1.0",
+      capture_method: "manual_import",
+    },
+  ];
+}
+
+async function listPackageJsonFiles(packageRoot, directoryName) {
+  const directoryPath = resolve(packageRoot, directoryName);
+
+  let entries;
+  try {
+    entries = await readdir(directoryPath, { withFileTypes: true });
+  } catch (error) {
+    if (error.code === "ENOENT") {
+      return [];
+    }
+    throw error;
+  }
+
+  return entries
+    .filter((entry) => entry.isFile() && entry.name.endsWith(".json"))
+    .map((entry) => `${directoryName}/${entry.name}`)
+    .sort();
+}
+
+async function buildPackageManifest(packageDir) {
+  const packageRoot = resolve(process.cwd(), packageDir);
+  const eventsPath = resolve(packageRoot, "data", "jsonl", "events.jsonl");
+
+  let contents;
+  try {
+    contents = await readFile(eventsPath);
+  } catch (error) {
+    console.error(`Unable to read canonical JSONL at ${eventsPath}`);
+    console.error(error.message);
+    process.exit(1);
+  }
+
+  const lines = jsonlLines(contents);
+  if (lines.length === 0) {
+    console.error(`Canonical JSONL is empty at ${eventsPath}`);
+    process.exit(1);
+  }
+
+  const events = [];
+  for (const [index, line] of lines.entries()) {
+    try {
+      events.push(JSON.parse(line));
+    } catch (error) {
+      console.error(`Invalid JSON on record ${index + 1} of ${eventsPath}`);
+      console.error(error.message);
+      process.exit(1);
+    }
+  }
+
+  const analysis = await analyzePackage(packageDir);
+  const blockedFindings = analysis.findings.filter((finding) => finding.severity === "high").length;
+  const mediumFindings = analysis.findings.filter((finding) => finding.severity === "medium").length;
+  const checkedAt = new Date().toISOString();
+
+  return {
+    schema_version: "0.1.0",
+    package_id: safePackageId(packageRoot),
+    version: "0.1.0",
+    release_tier: "local_review",
+    created_at: checkedAt,
+    publisher: {
+      name: "TODO: publisher or steward name",
+      contact: "TODO: publisher or steward contact",
+    },
+    license: {
+      id: "NOASSERTION",
+      access_terms: "Local review manifest only. Do not publish without consent, redaction, and release review.",
+    },
+    source_adapters: inferSourceAdapters(events),
+    files: [
+      {
+        path: "data/jsonl/events.jsonl",
+        media_type: "application/jsonl",
+        sha256: sha256Hex(contents),
+        bytes: contents.byteLength,
+        row_count: lines.length,
+        schema_id: events.every((event) => event.schema_version === "0.1.0")
+          ? "https://opendata4all.org/schemas/interaction-event.schema.json"
+          : undefined,
+        contains_raw_data: true,
+      },
+    ].map((file) => Object.fromEntries(Object.entries(file).filter(([, value]) => value !== undefined))),
+    consent_receipts: await listPackageJsonFiles(packageRoot, "receipts"),
+    redaction_reports: await listPackageJsonFiles(packageRoot, "reports"),
+    validation: {
+      status: blockedFindings > 0 ? "failed" : "passed",
+      checked_at: checkedAt,
+      notes:
+        blockedFindings > 0
+          ? `Local manifest generation found ${blockedFindings} blocked finding(s).`
+          : mediumFindings > 0
+            ? `Local manifest generation found ${mediumFindings} review-required finding(s).`
+            : "Local manifest generation found no deterministic risk findings.",
+    },
+  };
+}
+
+async function writePackageManifest(packageDir) {
+  const packageRoot = resolve(process.cwd(), packageDir);
+  const targetPath = resolve(packageRoot, "metadata", "manifest.json");
+  const manifest = await buildPackageManifest(packageDir);
+
+  await mkdir(dirname(targetPath), { recursive: true });
+  await writeFile(targetPath, `${JSON.stringify(manifest, null, 2)}\n`);
+
+  console.log(`Wrote package manifest to ${targetPath}`);
+  console.log(`Release tier: ${manifest.release_tier}`);
+  console.log(`Files: ${manifest.files.length}`);
+  console.log(`Validation: ${manifest.validation.status}`);
+}
+
 const riskDetectors = [
   {
     label: "secret.private_key",
@@ -1424,6 +1589,7 @@ Usage:
   od4a import-codex-hook <hook-jsonl> [package-dir]
   od4a import-claude-code-hook <hook-jsonl> [package-dir]
   od4a export [package-dir] [output-jsonl]
+  od4a manifest [package-dir]
   od4a scan [package-dir]
   od4a report [package-dir] [output-json]
   od4a preview [package-dir]
@@ -1440,8 +1606,8 @@ Usage:
 Current commands are intentionally narrow. The initial CLI only performs local
 package scaffolding, JSONL import/export, first adapter normalization, risk
 scanning, redaction reporting, preview summaries, fail-closed package
-validation, draft consent receipt generation, consent validation, withdrawal
-records, and manifest inspection.
+validation, local manifest generation, draft consent receipt generation,
+consent validation, withdrawal records, and manifest inspection.
 `);
 }
 
@@ -1479,6 +1645,9 @@ switch (command) {
     break;
   case "export":
     await exportJsonl(args[1] ?? ".", args[2]);
+    break;
+  case "manifest":
+    await writePackageManifest(args[1] ?? ".");
     break;
   case "scan":
     await scanPackage(args[1] ?? ".");

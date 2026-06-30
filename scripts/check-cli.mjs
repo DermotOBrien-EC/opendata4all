@@ -47,6 +47,7 @@ async function main() {
     "import-claude-code-hook",
     "import-codex-hook",
     "import-openai-api",
+    "manifest",
     "export",
     "inspect",
     "preview",
@@ -149,7 +150,9 @@ async function main() {
   );
   const openAiImport = runCli(["import-openai-api", openAiLogPath, openAiPackageDir]);
   assert(openAiImport.status === 0, "import-openai-api command should succeed");
-  const openAiEvents = (await readFile(join(openAiPackageDir, "data", "jsonl", "events.jsonl"), "utf8"))
+  const openAiEventsPath = join(openAiPackageDir, "data", "jsonl", "events.jsonl");
+  const openAiEventText = await readFile(openAiEventsPath, "utf8");
+  const openAiEvents = openAiEventText
     .trim()
     .split("\n")
     .map((line) => JSON.parse(line));
@@ -186,6 +189,24 @@ async function main() {
   );
   const openAiScan = runCli(["scan", openAiPackageDir]);
   assert(openAiScan.status === 0, "scan should accept normalized OpenAI API events");
+  const openAiManifest = runCli(["manifest", openAiPackageDir]);
+  assert(openAiManifest.status === 0, "manifest command should succeed");
+  assert(openAiManifest.stdout.includes("Release tier: local_review"), "manifest should summarize local review tier");
+  const parsedOpenAiManifest = JSON.parse(await readFile(join(openAiPackageDir, "metadata", "manifest.json"), "utf8"));
+  const openAiManifestFile = parsedOpenAiManifest.files.find((file) => file.path === "data/jsonl/events.jsonl");
+  assert(parsedOpenAiManifest.release_tier === "local_review", "generated manifests should default to local review");
+  assert(parsedOpenAiManifest.validation.status === "passed", "clean generated manifests should pass local validation");
+  assert(
+    parsedOpenAiManifest.source_adapters.some((adapter) => adapter.name === "od4a-openai-api-app-log"),
+    "generated manifests should infer source adapter metadata from OD4A events",
+  );
+  assert(openAiManifestFile.sha256 === sha256Hex(openAiEventText), "generated manifests should include file checksum");
+  assert(
+    openAiManifestFile.bytes === Buffer.byteLength(openAiEventText),
+    "generated manifests should include file byte count",
+  );
+  assert(openAiManifestFile.row_count === openAiEvents.length, "generated manifests should include JSONL row count");
+  assert(openAiManifestFile.contains_raw_data === true, "generated local review manifests should fail closed on raw data");
 
   const privateTranscriptPath = "/Users/example/.codex/private/transcript.jsonl";
   const privateEnvValue = "OPENAI_API_KEY=sk-abcdefghijklmnopqrstuvwxyz0123456789AB";
@@ -356,6 +377,18 @@ async function main() {
   assert(secretPackageValidation.stdout.includes("Package validation: failed"), "high-risk package should fail");
   assert(secretPackageValidation.stdout.includes("Decision: blocked"), "high-risk package should be blocked");
   assert(!secretPackageValidation.stdout.includes(fakeSecret), "package validation must not echo secret values");
+
+  const secretManifest = runCli(["manifest", packageDir]);
+  assert(secretManifest.status === 0, "manifest should write local review manifests for high-risk packages");
+  assert(secretManifest.stdout.includes("Validation: failed"), "manifest should report failed validation for high-risk packages");
+  assert(!secretManifest.stdout.includes(fakeSecret), "manifest output must not echo secret values");
+  const parsedSecretManifest = JSON.parse(await readFile(join(packageDir, "metadata", "manifest.json"), "utf8"));
+  assert(parsedSecretManifest.validation.status === "failed", "high-risk generated manifests should record failed validation");
+  assert(
+    parsedSecretManifest.validation.notes.includes("blocked finding"),
+    "high-risk generated manifests should explain blocked findings without raw values",
+  );
+  assert(!JSON.stringify(parsedSecretManifest).includes(fakeSecret), "generated manifests must not include raw secret values");
 
   const secretReport = runCli(["report", packageDir, secretReportPath]);
   assert(secretReport.status === 0, "report should write high-risk redaction reports");

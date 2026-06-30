@@ -74,6 +74,7 @@ od4a import ./records.jsonl od4a-package
 od4a import-openai-api ./openai-app-log.jsonl od4a-package
 od4a import-codex-hook ./codex-hook-log.jsonl od4a-package
 od4a import-claude-code-hook ./claude-code-hook-log.jsonl od4a-package
+od4a manifest od4a-package
 od4a scan od4a-package
 od4a report od4a-package
 od4a preview od4a-package
