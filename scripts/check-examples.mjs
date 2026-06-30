@@ -2,7 +2,10 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-const examplePackages = ["examples/minimal-package"];
+const examplePackages = [
+  "examples/minimal-package",
+  "examples/public-safe-conversation-package",
+];
 
 function readJson(path) {
   return JSON.parse(readFileSync(path, "utf8"));
@@ -61,8 +64,12 @@ for (const packageDir of examplePackages) {
     `${packageDir}: example package must exercise a distributable release tier`
   );
   assert(
-    manifest.files.every((file) => file.contains_raw_data !== true),
-    `${packageDir}: distributable example must not include raw-data files`
+    manifest.files.every((file) => file.contains_raw_data === false),
+    `${packageDir}: distributable example files must explicitly declare contains_raw_data:false`
+  );
+  assert(
+    manifest.validation?.status === "passed",
+    `${packageDir}: public-safe example manifest validation must be passed`
   );
   assert(
     manifest.consent_receipts.length > 0 &&
@@ -137,6 +144,10 @@ for (const packageDir of examplePackages) {
       file.row_count === events.length,
       `${packageDir}: ${file.path} row_count must match parsed JSONL rows`
     );
+    assert(
+      new Set(events.map((event) => event.event_id)).size === events.length,
+      `${packageDir}: ${file.path} event_id values must be unique`
+    );
 
     for (const event of events) {
       assert(
@@ -159,12 +170,20 @@ for (const packageDir of examplePackages) {
       );
       assert(
         manifest.source_adapters.some(
-          (adapter) => adapter.name === event.source.adapter_name
+          (adapter) =>
+            adapter.name === event.source.adapter_name &&
+            adapter.version === event.source.adapter_version
         ),
-        `${packageDir}: event adapter must appear in manifest source_adapters`
+        `${packageDir}: event adapter name and version must appear in manifest source_adapters`
+      );
+      assert(
+        event.data.content_release_level !== "raw_local_review",
+        `${packageDir}: public-safe example event must not be raw local-review content`
       );
     }
   }
 }
 
-console.log(`Validated ${examplePackages.length} example package.`);
+console.log(
+  `Validated ${examplePackages.length} example ${examplePackages.length === 1 ? "package" : "packages"}.`
+);

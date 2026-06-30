@@ -80,7 +80,7 @@ async function main() {
   const validate = runCli(["validate"]);
   assert(validate.status === 0, "validate command should succeed");
   assert(validate.stdout.includes("Validated 4 schema files."), "validate should run schema checks");
-  assert(validate.stdout.includes("Validated 1 example package."), "validate should run example checks");
+  assert(validate.stdout.includes("Validated 2 example packages."), "validate should run example checks");
   assert(
     !validate.stdout.includes("Validated od4a CLI commands."),
     "od4a validate must not recursively invoke CLI regression checks",

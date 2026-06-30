@@ -1,0 +1,17 @@
+{
+  "schema_version": "0.1.0",
+  "report_id": "redaction-public-safe-conversation-001",
+  "created_at": "2026-06-30T12:00:00Z",
+  "policy_version": "example-redaction-0.1.0",
+  "input_hash": "sha256:4758d262aedc7efc98b249bb0e497af6df3138b1d4b019fbb5c6dc718ff1f375",
+  "output_hash": "sha256:4758d262aedc7efc98b249bb0e497af6df3138b1d4b019fbb5c6dc718ff1f375",
+  "summary": {
+    "risk_score": 0,
+    "blocked_findings": 0,
+    "redacted_findings": 0,
+    "review_required": false
+  },
+  "findings": [],
+  "decision": "publishable",
+  "notes": "Synthetic fixture contains no real personal data, secrets, private paths, private URLs, or raw platform export."
+}
