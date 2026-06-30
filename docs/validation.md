@@ -9,12 +9,13 @@ npm run validate
 ```
 
 It checks that all schema files parse as JSON, that the current privacy and
-governance invariants remain represented in the schemas, and that checked-in
-example packages are internally consistent.
+governance invariants remain represented in the schemas, that checked-in
+example packages are internally consistent, and that the local CLI commands keep
+working against disposable fixtures.
 
 The CI workflow runs the same command on pull requests and pushes to `main`.
-The workflow does not require dependency installation because the validation
-scripts use only the Node.js standard library.
+The workflow does not require dependency installation because the CLI and
+validation scripts use only the Node.js standard library.
 
 ## Current Schema Invariants
 

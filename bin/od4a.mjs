@@ -177,8 +177,8 @@ Usage:
   od4a inspect [package-dir]
   od4a help
 
-Current commands are intentionally narrow. The initial CLI only runs local
-validation, example checks, and manifest inspection.
+Current commands are intentionally narrow. The initial CLI only performs local
+package scaffolding, JSONL import/export, validation, and manifest inspection.
 `);
 }
 
