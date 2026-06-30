@@ -42,7 +42,9 @@
 
 ## M5: Packaging And Publication
 
-- Parquet derived tables.
+- Parquet derived tables. Dependency-free JSONL table projection and schema
+  sidecar are local precursors; true Parquet writing still requires an explicit
+  tooling decision.
 - Release manifests and checksums.
 - Dataset card generation.
 - HF-compatible public-safe sample package.

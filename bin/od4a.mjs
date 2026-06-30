@@ -1439,6 +1439,43 @@ function joinedList(value) {
   return Array.isArray(value) ? value.map((item) => String(item)).sort().join("|") : "";
 }
 
+const derivedEventTableColumns = [
+  { name: "schema_version", type: "string", nullable: false },
+  { name: "table", type: "string", nullable: false },
+  { name: "event_id", type: "string", nullable: false },
+  { name: "event_type", type: "string", nullable: false },
+  { name: "event_time", type: "string", nullable: false },
+  { name: "conversation_id", type: "string", nullable: false },
+  { name: "turn_id", type: "string", nullable: false },
+  { name: "sequence", type: "integer", nullable: true },
+  { name: "source_adapter", type: "string", nullable: false },
+  { name: "source_capture_method", type: "string", nullable: false },
+  { name: "actor_type", type: "string", nullable: false },
+  { name: "actor_role", type: "string", nullable: false },
+  { name: "consent_status", type: "string", nullable: false },
+  { name: "consent_scope", type: "string", nullable: false },
+  { name: "risk_severity", type: "string", nullable: false },
+  { name: "risk_score", type: "number", nullable: true },
+  { name: "risk_labels", type: "string", nullable: false },
+  { name: "data_kind", type: "string", nullable: false },
+  { name: "content_release_level", type: "string", nullable: false },
+  { name: "text_part_count", type: "integer", nullable: false },
+  { name: "text_char_count", type: "integer", nullable: false },
+  { name: "has_tool_command", type: "boolean", nullable: false },
+];
+
+function derivedEventTableSchema(rowCount) {
+  return {
+    schema_version: "0.1.0",
+    table: "events",
+    format: "jsonl",
+    source_path: "data/jsonl/events.jsonl",
+    row_count: rowCount,
+    raw_data_included: false,
+    columns: derivedEventTableColumns,
+  };
+}
+
 function derivedEventRow(event) {
   const stats = textPartStats(event.data);
 
@@ -1472,13 +1509,22 @@ async function writeDerivedTables(packageDir, outputDir) {
   const packageRoot = resolve(process.cwd(), packageDir);
   const targetRoot = outputDir ? resolve(process.cwd(), outputDir) : resolve(packageRoot, "data", "tables");
   const targetPath = resolve(targetRoot, "events.jsonl");
-  const { events } = await readCanonicalEvents(packageDir);
+  const schemaPath = resolve(targetRoot, "events.schema.json");
+  const { events, eventsPath } = await readCanonicalEvents(packageDir);
+  if (targetPath === eventsPath) {
+    console.error(`Refusing to overwrite canonical JSONL at ${eventsPath}`);
+    process.exit(1);
+  }
+
   const rows = events.map(derivedEventRow);
+  const tableSchema = derivedEventTableSchema(rows.length);
 
   await mkdir(targetRoot, { recursive: true });
   await writeFile(targetPath, `${rows.map((row) => JSON.stringify(row)).join("\n")}\n`);
+  await writeFile(schemaPath, `${JSON.stringify(tableSchema, null, 2)}\n`);
 
   console.log(`Wrote derived event table to ${targetPath}`);
+  console.log(`Schema: ${schemaPath}`);
   console.log(`Rows: ${rows.length}`);
   console.log("Raw text included: no");
 }

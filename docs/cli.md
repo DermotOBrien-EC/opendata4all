@@ -71,11 +71,13 @@ local validation, packaging, consent, risk review, and first adapter surfaces.
   must declare `contains_raw_data: false`. It does not upload, publish, or
   contact Hugging Face.
 - `derive-tables` writes a local `data/tables/events.jsonl` derived event table
-  or an equivalent caller-supplied output directory. The table contains stable
-  event metadata, source, actor, consent, risk, data-kind, release-level, and
-  text-count fields, but it does not copy raw message text or tool command
-  strings. This is a dependency-free local projection for later analytics and
-  Parquet conversion.
+  and adjacent `events.schema.json` sidecar, or equivalent files in a
+  caller-supplied output directory. The table contains stable event metadata,
+  source, actor, consent, risk, data-kind, release-level, and text-count fields,
+  but it does not copy raw message text or tool command strings. The sidecar
+  records column names, simple types, nullability, row count, source path, and
+  the raw-data exclusion flag. This is a dependency-free local projection for
+  later analytics and Parquet conversion.
 - `scan` checks canonical JSONL for deterministic risk patterns such as private
   keys, API tokens, email addresses, IP addresses, full URLs, and local file
   paths. It reports detector labels and physical JSONL line numbers, not raw

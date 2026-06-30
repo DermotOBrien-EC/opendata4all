@@ -37,7 +37,11 @@ validation scripts use only the Node.js standard library.
   reports, current checksums, and `contains_raw_data: false` declared for every
   copied file.
 - Local derived table generation must preserve canonical event row counts while
-  excluding raw message text and tool command strings from table output.
+  excluding raw message text and tool command strings from table and sidecar
+  output.
+- Local derived table schema sidecars must declare `raw_data_included: false`
+  and describe derived metric columns such as text counts and tool-command
+  presence without storing raw values.
 
 ## Current Template Invariants
 

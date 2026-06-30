@@ -234,13 +234,24 @@ async function main() {
 
   const derivedTables = runCli(["derive-tables", openAiPackageDir, derivedTablesDir]);
   assert(derivedTables.status === 0, "derive-tables command should succeed");
+  assert(derivedTables.stdout.includes("Schema:"), "derive-tables should summarize the schema sidecar");
   assert(derivedTables.stdout.includes("Raw text included: no"), "derive-tables should summarize raw-text policy");
   const derivedEventText = await readFile(join(derivedTablesDir, "events.jsonl"), "utf8");
+  const derivedEventSchemaText = await readFile(join(derivedTablesDir, "events.schema.json"), "utf8");
+  const derivedEventSchema = JSON.parse(derivedEventSchemaText);
   const derivedEventRows = derivedEventText
     .trim()
     .split("\n")
     .map((line) => JSON.parse(line));
+  const derivedColumnNames = derivedEventSchema.columns.map((column) => column.name);
   assert(derivedEventRows.length === openAiEvents.length, "derive-tables should preserve event row count");
+  assert(derivedEventSchema.table === "events", "derive-tables should write the event table schema");
+  assert(derivedEventSchema.row_count === openAiEvents.length, "derived table schema should record row count");
+  assert(derivedEventSchema.raw_data_included === false, "derived table schema should declare raw-data exclusion");
+  assert(
+    derivedColumnNames.includes("text_char_count") && derivedColumnNames.includes("has_tool_command"),
+    "derived table schema should describe derived metric columns",
+  );
   assert(
     derivedEventRows.every((row) => row.table === "events" && row.schema_version === "0.1.0"),
     "derive-tables should write versioned event table rows",
@@ -259,8 +270,19 @@ async function main() {
     "Private app internals and undocumented storage.",
   ]) {
     assert(!derivedEventText.includes(rawValue), "derived tables must not include raw event text");
+    assert(!derivedEventSchemaText.includes(rawValue), "derived table schemas must not include raw event text");
     assert(!derivedTables.stdout.includes(rawValue), "derive-tables output must not echo raw event text");
   }
+  const unsafeDerivedTables = runCli(["derive-tables", openAiPackageDir, join(openAiPackageDir, "data", "jsonl")]);
+  assert(unsafeDerivedTables.status === 1, "derive-tables should reject output paths that overwrite canonical JSONL");
+  assert(
+    unsafeDerivedTables.stderr.includes("Refusing to overwrite canonical JSONL"),
+    "derive-tables should explain canonical JSONL overwrite rejection",
+  );
+  assert(
+    (await readFile(openAiEventsPath, "utf8")) === openAiEventText,
+    "derive-tables overwrite rejection must preserve canonical JSONL bytes",
+  );
 
   const blockedHfSample = runCli(["hf-sample", openAiPackageDir, blockedHfSampleDir]);
   assert(blockedHfSample.status === 1, "hf-sample should reject local-review packages");
