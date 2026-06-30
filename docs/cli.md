@@ -17,6 +17,7 @@ project's validation surface before any adapter or packaging workflow is added.
 - `od4a validate-package [package-dir]`
 - `od4a consent-draft [package-dir] [output-json]`
 - `od4a validate-consent <receipt-json> [package-dir]`
+- `od4a withdraw-consent <receipt-json> [output-json]`
 - `od4a inspect [package-dir]`
 - `od4a help`
 
@@ -47,6 +48,9 @@ project's validation surface before any adapter or packaging workflow is added.
 - `validate-consent` checks consent receipt scope fields and, when a package
   directory is supplied, verifies that `package_manifest_hash` matches the exact
   package manifest bytes.
+- `withdraw-consent` writes a withdrawn consent receipt with minimal tombstone
+  metadata. It requires an active receipt and does not contact recipients,
+  delete external copies, or publish remotely.
 - `inspect` reads an OD4A package manifest from the current directory or a
   relative package directory and prints a summary without opening any network
   connection.

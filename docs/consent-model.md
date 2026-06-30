@@ -58,4 +58,8 @@ required, the system should remove active managed copies, suppress unreleased
 derivatives, notify controlled-access recipients where applicable, and record a
 minimal audit/tombstone entry.
 
+Local withdrawal records should use structured tombstone metadata such as
+timestamp, previous status, reason class, and deletion scope. They should not
+store free-form sensitive withdrawal reasons in the receipt.
+
 Public releases must explain that downstream copies may not be fully recallable.

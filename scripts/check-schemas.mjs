@@ -49,6 +49,29 @@ function requiresWithdrawalPath(schema) {
   );
 }
 
+function isTerminalConsentStatusCondition(rule) {
+  const statuses = rule?.if?.properties?.status?.enum;
+  return (
+    Array.isArray(statuses) &&
+    statuses.includes("withdrawn") &&
+    statuses.includes("deleted") &&
+    statuses.includes("expired") &&
+    statuses.includes("superseded") &&
+    includesRequired(rule.if, "status")
+  );
+}
+
+function requiresTombstoneMetadata(schema) {
+  const tombstone = schema.properties?.tombstone;
+  return (
+    includesRequired(schema, "tombstone") &&
+    includesRequired(tombstone, "created_at") &&
+    includesRequired(tombstone, "previous_status") &&
+    includesRequired(tombstone, "reason_class") &&
+    tombstone.properties?.created_at?.type === "string"
+  );
+}
+
 function isDistributableReleaseCondition(rule) {
   const releaseTiers = rule?.if?.properties?.release_tier?.enum;
   return (
@@ -227,6 +250,14 @@ assert(
       (rule) => isDraftStatusCondition(rule) && requiresWithdrawalPath(rule.else)
     ),
   "non-draft consent must require withdrawal url or email"
+);
+assert(
+  consent.allOf.some(
+    (rule) =>
+      isTerminalConsentStatusCondition(rule) &&
+      requiresTombstoneMetadata(rule.then)
+  ),
+  "withdrawn/deleted/expired/superseded consent must require tombstone metadata"
 );
 
 assert(

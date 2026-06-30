@@ -263,6 +263,42 @@
         }
       }
     },
+    "tombstone": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["created_at", "previous_status", "reason_class"],
+      "properties": {
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "previous_status": {
+          "enum": ["draft", "active", "withdrawn", "deleted", "expired", "superseded"]
+        },
+        "reason_class": {
+          "enum": [
+            "user_withdrawal",
+            "deletion_request",
+            "retention_expired",
+            "superseded",
+            "administrative_correction",
+            "other"
+          ]
+        },
+        "deletion_scope": {
+          "enum": [
+            "future_processing_only",
+            "managed_copies",
+            "controlled_recipients_notified",
+            "not_applicable"
+          ]
+        },
+        "replacement_receipt_id": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
     "status": {
       "enum": ["draft", "active", "withdrawn", "deleted", "expired", "superseded"]
     }
@@ -338,6 +374,30 @@
           "package_manifest_hash": {
             "type": "string",
             "minLength": 1
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "enum": ["withdrawn", "deleted", "expired", "superseded"]
+          }
+        },
+        "required": ["status"]
+      },
+      "then": {
+        "required": ["tombstone"],
+        "properties": {
+          "tombstone": {
+            "required": ["created_at", "previous_status", "reason_class"],
+            "properties": {
+              "created_at": {
+                "type": "string",
+                "format": "date-time"
+              }
+            }
           }
         }
       }

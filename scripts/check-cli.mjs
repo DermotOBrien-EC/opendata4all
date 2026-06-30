@@ -46,6 +46,7 @@ async function main() {
     "validate",
     "validate-consent",
     "validate-package",
+    "withdraw-consent",
   ]) {
     assert(help.stdout.includes(`od4a ${command}`), `help should list ${command}`);
   }
@@ -303,6 +304,48 @@ async function main() {
     activeWithdrawalValidation.stdout.includes("withdrawal_path_required_for_active_consent"),
     "validate-consent should report missing active withdrawal path",
   );
+
+  const draftWithdrawal = runCli(["withdraw-consent", "receipts/consent-draft.json"], { cwd: packageDir });
+  assert(draftWithdrawal.status === 1, "withdraw-consent should reject non-active receipts");
+  assert(
+    draftWithdrawal.stdout.includes("active_status_required_for_withdrawal"),
+    "withdraw-consent should require active receipts",
+  );
+
+  const activeConsent = {
+    ...parsedConsentDraft,
+    status: "active",
+    withdrawal: {
+      method: "email",
+      email: "privacy@example.invalid",
+    },
+  };
+  await writeFile(join(packageDir, "receipts", "active-consent.json"), `${JSON.stringify(activeConsent)}\n`);
+  const activeConsentValidation = runCli(["validate-consent", "receipts/active-consent.json", "."], {
+    cwd: packageDir,
+  });
+  assert(activeConsentValidation.status === 0, "validate-consent should pass active consent with a withdrawal path");
+
+  const withdrawnPath = join(packageDir, "receipts", "withdrawn-consent.json");
+  const withdrawnConsent = runCli(["withdraw-consent", "receipts/active-consent.json", withdrawnPath], {
+    cwd: packageDir,
+  });
+  assert(withdrawnConsent.status === 0, "withdraw-consent should write withdrawn receipts");
+  assert(withdrawnConsent.stdout.includes("Status: withdrawn"), "withdraw-consent should summarize withdrawn status");
+
+  const parsedWithdrawnConsent = JSON.parse(await readFile(withdrawnPath, "utf8"));
+  assert(parsedWithdrawnConsent.status === "withdrawn", "withdrawn receipt should have withdrawn status");
+  assert(parsedWithdrawnConsent.tombstone.previous_status === "active", "withdrawn receipt should record previous status");
+  assert(parsedWithdrawnConsent.tombstone.reason_class === "user_withdrawal", "withdrawn receipt should record reason class");
+  assert(
+    !("note" in parsedWithdrawnConsent.tombstone),
+    "withdrawn tombstone should not carry free-form withdrawal reasons",
+  );
+
+  const withdrawnValidation = runCli(["validate-consent", "receipts/withdrawn-consent.json", "."], {
+    cwd: packageDir,
+  });
+  assert(withdrawnValidation.status === 0, "validate-consent should pass withdrawn receipts with tombstones");
 
   await writeFile(sourcePath, '{"id":1}\nnot json\n');
   const invalidImport = runCli(["import", sourcePath, packageDir]);

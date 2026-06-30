@@ -579,6 +579,7 @@ function validateConsentTimeScope(timeScope, receipt, issues) {
 function validateConsentReceipt(receipt, expectedManifestHash) {
   const issues = [];
   const activeStatuses = ["active", "withdrawn", "deleted", "expired", "superseded"];
+  const terminalStatuses = ["withdrawn", "deleted", "expired", "superseded"];
 
   if (!receipt || typeof receipt !== "object" || Array.isArray(receipt)) {
     return ["receipt_object_required"];
@@ -647,6 +648,31 @@ function validateConsentReceipt(receipt, expectedManifestHash) {
     pushIssue(issues, "package_manifest_hash_mismatch");
   }
 
+  if (terminalStatuses.includes(receipt.status)) {
+    if (!receipt.tombstone || typeof receipt.tombstone !== "object") {
+      pushIssue(issues, "tombstone_required_for_terminal_consent");
+    } else {
+      if (!isNonEmptyString(receipt.tombstone.created_at)) {
+        pushIssue(issues, "tombstone.created_at_required");
+      }
+      if (!["draft", "active", "withdrawn", "deleted", "expired", "superseded"].includes(receipt.tombstone.previous_status)) {
+        pushIssue(issues, "tombstone.previous_status_invalid");
+      }
+      if (
+        ![
+          "user_withdrawal",
+          "deletion_request",
+          "retention_expired",
+          "superseded",
+          "administrative_correction",
+          "other",
+        ].includes(receipt.tombstone.reason_class)
+      ) {
+        pushIssue(issues, "tombstone.reason_class_invalid");
+      }
+    }
+  }
+
   return issues;
 }
 
@@ -670,6 +696,60 @@ async function validateConsentCommand(receiptPath, packageDir) {
   if (issues.length > 0) {
     process.exit(1);
   }
+}
+
+function safeFilePart(value) {
+  return String(value || "consent").replace(/[^A-Za-z0-9._-]/g, "_");
+}
+
+async function withdrawConsentCommand(receiptPath, outputPath) {
+  if (!receiptPath) {
+    console.error("Usage: od4a withdraw-consent <receipt-json> [output-json]");
+    process.exit(1);
+  }
+
+  const resolvedReceiptPath = resolve(process.cwd(), receiptPath);
+  const receipt = await readJsonFile(resolvedReceiptPath, "consent receipt");
+  const preflightIssues = validateConsentReceipt(receipt, null);
+
+  if (preflightIssues.length > 0) {
+    console.log("Consent withdrawal: failed");
+    console.log(`Issues: ${preflightIssues.length}`);
+    for (const issue of preflightIssues) {
+      console.log(`- ${issue}`);
+    }
+    process.exit(1);
+  }
+
+  if (receipt.status !== "active") {
+    console.log("Consent withdrawal: failed");
+    console.log("Issues: 1");
+    console.log("- active_status_required_for_withdrawal");
+    process.exit(1);
+  }
+
+  const withdrawn = {
+    ...receipt,
+    receipt_id: `${receipt.receipt_id}-withdrawn`,
+    status: "withdrawn",
+    tombstone: {
+      created_at: new Date().toISOString(),
+      previous_status: receipt.status,
+      reason_class: "user_withdrawal",
+      deletion_scope: "future_processing_only",
+    },
+  };
+  const targetPath = outputPath
+    ? resolve(process.cwd(), outputPath)
+    : resolve(dirname(resolvedReceiptPath), `${safeFilePart(withdrawn.receipt_id)}.json`);
+
+  await mkdir(dirname(targetPath), { recursive: true });
+  await writeFile(targetPath, `${JSON.stringify(withdrawn, null, 2)}\n`);
+
+  console.log(`Wrote withdrawn consent receipt to ${targetPath}`);
+  console.log(`Status: ${withdrawn.status}`);
+  console.log(`Previous status: ${withdrawn.tombstone.previous_status}`);
+  console.log(`Reason class: ${withdrawn.tombstone.reason_class}`);
 }
 
 async function inspectPackage(packageDir) {
@@ -702,6 +782,7 @@ Usage:
   od4a validate-package [package-dir]
   od4a consent-draft [package-dir] [output-json]
   od4a validate-consent <receipt-json> [package-dir]
+  od4a withdraw-consent <receipt-json> [output-json]
   od4a validate
   od4a validate-schemas
   od4a validate-examples
@@ -711,7 +792,7 @@ Usage:
 Current commands are intentionally narrow. The initial CLI only performs local
 package scaffolding, JSONL import/export, risk scanning, redaction reporting,
 preview summaries, fail-closed package validation, draft consent receipt
-generation, consent validation, and manifest inspection.
+generation, consent validation, withdrawal records, and manifest inspection.
 `);
 }
 
@@ -746,6 +827,9 @@ switch (command) {
     break;
   case "validate-consent":
     await validateConsentCommand(args[1], args[2]);
+    break;
+  case "withdraw-consent":
+    await withdrawConsentCommand(args[1], args[2]);
     break;
   case "validate":
     runNodeScripts([
