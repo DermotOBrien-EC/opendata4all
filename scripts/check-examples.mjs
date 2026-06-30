@@ -3,9 +3,15 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 const examplePackages = [
+  "examples/controlled-research-package",
   "examples/minimal-package",
   "examples/public-safe-conversation-package",
 ];
+
+const redactionDecisionsByReleaseTier = new Map([
+  ["public_release", new Set(["publishable"])],
+  ["controlled_research", new Set(["controlled_only", "publishable"])],
+]);
 
 function readJson(path) {
   return JSON.parse(readFileSync(path, "utf8"));
@@ -49,6 +55,24 @@ function hasNamedVersionedAdapter(adapter) {
     adapter.version.length > 0
   );
 }
+
+function adapterMatchesManifest(adapter, manifestAdapter) {
+  return (
+    adapter.name === manifestAdapter.name &&
+    adapter.version === manifestAdapter.version &&
+    (adapter.capture_method ?? null) === (manifestAdapter.capture_method ?? null)
+  );
+}
+
+function eventSourceMatchesManifestAdapter(source, manifestAdapter) {
+  return (
+    source.adapter_name === manifestAdapter.name &&
+    source.adapter_version === manifestAdapter.version &&
+    (source.capture_method ?? null) === (manifestAdapter.capture_method ?? null)
+  );
+}
+
+const releaseTiers = new Set();
 
 for (const packageDir of examplePackages) {
   const manifestPath = join(packageDir, "metadata", "manifest.json");
@@ -96,13 +120,14 @@ for (const packageDir of examplePackages) {
     ),
     `${packageDir}: example package must exercise a distributable release tier`
   );
+  releaseTiers.add(manifest.release_tier);
   assert(
     manifest.files.every((file) => file.contains_raw_data === false),
     `${packageDir}: distributable example files must explicitly declare contains_raw_data:false`
   );
   assert(
     manifest.validation?.status === "passed",
-    `${packageDir}: public-safe example manifest validation must be passed`
+    `${packageDir}: checked-in example manifest validation must be passed`
   );
   assert(
     manifest.consent_receipts.length > 0 &&
@@ -127,14 +152,33 @@ for (const packageDir of examplePackages) {
       `${packageDir}: active consent receipt must bind to the current manifest hash`
     );
     assert(
+      receipt.release_tier === manifest.release_tier,
+      `${packageDir}: consent receipt release_tier must match manifest release_tier`
+    );
+    assert(
       receipt.source_scope.adapters.every(hasNamedVersionedAdapter),
       `${packageDir}: consent receipt must list named, versioned adapters`
     );
+    for (const adapter of receipt.source_scope.adapters) {
+      assert(
+        manifest.source_adapters.some((manifestAdapter) =>
+          adapterMatchesManifest(adapter, manifestAdapter)
+        ),
+        `${packageDir}: consent receipt adapter metadata must match manifest source_adapters`
+      );
+    }
     assert(
       receipt.withdrawal.url || receipt.withdrawal.email,
       `${packageDir}: consent receipt must include a withdrawal path`
     );
   }
+
+  const allowedReportDecisions =
+    redactionDecisionsByReleaseTier.get(manifest.release_tier);
+  assert(
+    allowedReportDecisions,
+    `${packageDir}: no redaction decision policy configured for ${manifest.release_tier}`
+  );
 
   for (const report of redactionReports) {
     assert(
@@ -146,12 +190,14 @@ for (const packageDir of examplePackages) {
       `${packageDir}: redaction report output_hash must match a package file hash`
     );
     assert(
-      report.decision === "publishable",
-      `${packageDir}: public-safe example redaction report must be publishable`
+      allowedReportDecisions.has(report.decision),
+      `${packageDir}: ${manifest.release_tier} redaction report decision must be one of ${[
+        ...allowedReportDecisions,
+      ].join(", ")}`
     );
     assert(
       report.summary.blocked_findings === 0,
-      `${packageDir}: public-safe example must not have blocked findings`
+      `${packageDir}: checked-in example must not have blocked findings`
     );
   }
 
@@ -199,23 +245,30 @@ for (const packageDir of examplePackages) {
       );
       assert(
         event.risk.severity !== "blocked",
-        `${packageDir}: public-safe example event must not be blocked`
+        `${packageDir}: checked-in example event must not be blocked`
       );
       assert(
         manifest.source_adapters.some(
-          (adapter) =>
-            adapter.name === event.source.adapter_name &&
-            adapter.version === event.source.adapter_version
+          (adapter) => eventSourceMatchesManifestAdapter(event.source, adapter)
         ),
-        `${packageDir}: event adapter name and version must appear in manifest source_adapters`
+        `${packageDir}: event adapter metadata must appear in manifest source_adapters`
       );
       assert(
         event.data.content_release_level !== "raw_local_review",
-        `${packageDir}: public-safe example event must not be raw local-review content`
+        `${packageDir}: checked-in example event must not be raw local-review content`
       );
     }
   }
 }
+
+assert(
+  releaseTiers.has("public_release"),
+  "checked-in example packages must include at least one public_release package"
+);
+assert(
+  releaseTiers.has("controlled_research"),
+  "checked-in example packages must include at least one controlled_research package"
+);
 
 console.log(
   `Validated ${examplePackages.length} example ${examplePackages.length === 1 ? "package" : "packages"}.`

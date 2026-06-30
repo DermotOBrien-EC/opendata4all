@@ -1,0 +1,44 @@
+{
+  "schema_version": "0.1.0",
+  "package_id": "od4a-example-controlled-research",
+  "version": "0.1.0",
+  "release_tier": "controlled_research",
+  "created_at": "2026-06-30T13:00:00Z",
+  "publisher": {
+    "name": "opendata4all example fixtures",
+    "contact": "privacy@example.invalid"
+  },
+  "license": {
+    "id": "LicenseRef-OD4A-Controlled-Research-Example",
+    "access_terms": "Synthetic fixture for controlled-research validation only. Redistribution of record-level data is not implied."
+  },
+  "source_adapters": [
+    {
+      "name": "od4a-controlled-research-example",
+      "version": "0.1.0",
+      "capture_method": "manual_import"
+    }
+  ],
+  "files": [
+    {
+      "path": "data/jsonl/events.jsonl",
+      "media_type": "application/jsonl",
+      "sha256": "sha256:d1c0882d9a801ad4345f09cc3097fd75fa44b03a80039ff91156a961b1f933af",
+      "bytes": 2289,
+      "row_count": 2,
+      "schema_id": "https://opendata4all.org/schemas/interaction-event.schema.json",
+      "contains_raw_data": false
+    }
+  ],
+  "consent_receipts": [
+    "receipts/consent-001.json"
+  ],
+  "redaction_reports": [
+    "reports/redaction-report.json"
+  ],
+  "validation": {
+    "status": "passed",
+    "checked_at": "2026-06-30T13:00:00Z",
+    "notes": "Synthetic controlled-research example fixture."
+  }
+}
