@@ -387,6 +387,194 @@ async function importOpenAiApiLog(sourcePath, targetDir) {
   console.log(`Imported ${recordCount} OpenAI app-side records as ${events.length} OD4A events to ${destinationPath}`);
 }
 
+function codexHookName(record) {
+  return (
+    firstString(record.hook_event_name, record.hook_event, record.event_name, record.event, record.type) ?? "codex_hook"
+  );
+}
+
+function codexConversationId(record, rawLineHash, lineNumber) {
+  return (
+    firstString(record.session_id, record.conversation_id, record.thread_id) ??
+    `codex-hook-line-${lineNumber}-${rawLineHash.slice("sha256:".length, "sha256:".length + 12)}`
+  );
+}
+
+function codexTurnId(record, lineNumber) {
+  return firstString(record.turn_id, record.request_id, record.tool_call_id, record.id) ?? `line-${lineNumber}`;
+}
+
+function codexMessageFromRecord(record) {
+  const role = firstString(record.role) ?? (record.response || record.output ? "assistant" : "user");
+  const text = textFromOpenAiValue(record.prompt ?? record.input ?? record.message ?? record.response ?? record.output);
+
+  if (text.length === 0) {
+    return null;
+  }
+
+  return {
+    kind: "message",
+    actorType: actorTypeForOpenAiRole(role),
+    role,
+    eventType: "org.opendata4all.message.created",
+    data: {
+      kind: "message",
+      hook_event_name: codexHookName(record),
+      role,
+      message_id: firstString(record.message_id, record.id),
+      parts: [
+        {
+          type: "text",
+          text,
+        },
+      ],
+      content_release_level: "raw_local_review",
+    },
+  };
+}
+
+function codexToolFromRecord(record) {
+  const toolName = firstString(record.tool_name, record.tool, record.name, record.command?.name);
+  const command = typeof record.command === "string" ? record.command : firstString(record.command?.text, record.command_text);
+
+  if (!toolName && !command) {
+    return null;
+  }
+
+  return {
+    kind: "tool",
+    actorType: "tool",
+    role: "tool",
+    eventType: "org.opendata4all.tool.invoked",
+    data: {
+      kind: "tool_event",
+      hook_event_name: codexHookName(record),
+      tool_name: toolName ?? "unknown",
+      ...(command ? { command } : {}),
+      ...(isNonEmptyString(record.decision) ? { decision: record.decision } : {}),
+      ...(Number.isInteger(record.exit_code) ? { exit_code: record.exit_code } : {}),
+      content_release_level: "raw_local_review",
+    },
+  };
+}
+
+function codexImportableFromRecord(record) {
+  return codexMessageFromRecord(record) ?? codexToolFromRecord(record);
+}
+
+function buildCodexHookEvent({ record, normalized, lineNumber, rawLineHash, sourceHash, sequence }) {
+  const hookName = codexHookName(record);
+  const eventHash = sha256Digest(`${lineNumber}:${sequence}:${rawLineHash}:${hookName}:${JSON.stringify(normalized.data)}`);
+  const turnId = codexTurnId(record, lineNumber);
+
+  return {
+    schema_version: "0.1.0",
+    event_id: `codex-hook-${eventHash.slice(0, 24)}`,
+    event_type: normalized.eventType,
+    event_time: normalizeTimestamp(record.timestamp ?? record.created_at ?? record.time),
+    source: {
+      harness: "codex",
+      harness_kind: "coding_agent",
+      adapter_name: "od4a-codex-hook",
+      adapter_version: "0.1.0",
+      capture_method: "documented_hook",
+    },
+    conversation_id: codexConversationId(record, rawLineHash, lineNumber),
+    turn_id: turnId,
+    sequence,
+    actor: {
+      type: normalized.actorType,
+      role: normalized.role,
+    },
+    consent: {
+      status: "unknown",
+      scope: ["local_preview"],
+      receipt_id: "pending",
+      policy_version: "od4a-consent-0.1.0",
+    },
+    risk: {
+      severity: "none",
+      labels: [],
+      score: 0,
+    },
+    redactions: [],
+    provenance: {
+      raw_source_hash: rawLineHash,
+      normalization_run_id: `codex-hook-${sourceHash.slice("sha256:".length, "sha256:".length + 16)}`,
+      trust_level: "user_supplied",
+    },
+    data: {
+      ...normalized.data,
+      source_line: lineNumber,
+    },
+  };
+}
+
+async function importCodexHookLog(sourcePath, targetDir) {
+  const inputPath = resolve(process.cwd(), sourcePath);
+  const packageRoot = resolve(process.cwd(), targetDir);
+  const destinationPath = resolve(packageRoot, "data", "jsonl", "events.jsonl");
+
+  let contents;
+  try {
+    contents = await readFile(inputPath);
+  } catch (error) {
+    console.error(`Unable to read Codex hook JSONL at ${inputPath}`);
+    console.error(error.message);
+    process.exit(1);
+  }
+
+  const sourceHash = sha256Hex(contents);
+  const events = [];
+  let recordCount = 0;
+
+  for (const [index, line] of contents.toString("utf8").split(/\r?\n/).entries()) {
+    if (line.trim().length === 0) {
+      continue;
+    }
+
+    const lineNumber = index + 1;
+    let record;
+    try {
+      record = JSON.parse(line);
+    } catch (error) {
+      console.error(`Invalid JSON on line ${lineNumber} of ${inputPath}`);
+      console.error(error.message);
+      process.exit(1);
+    }
+
+    recordCount += 1;
+    const rawLineHash = sha256Hex(Buffer.from(line, "utf8"));
+    const normalized = codexImportableFromRecord(record);
+
+    if (!normalized) {
+      console.error(`No importable Codex hook message or tool event on line ${lineNumber} of ${inputPath}`);
+      process.exit(1);
+    }
+
+    events.push(
+      buildCodexHookEvent({
+        record,
+        normalized,
+        lineNumber,
+        rawLineHash,
+        sourceHash,
+        sequence: events.length,
+      }),
+    );
+  }
+
+  if (recordCount === 0) {
+    console.error("Input Codex hook JSONL is empty");
+    process.exit(1);
+  }
+
+  await mkdir(resolve(packageRoot, "data", "jsonl"), { recursive: true });
+  await writeFile(destinationPath, `${events.map((event) => JSON.stringify(event)).join("\n")}\n`);
+
+  console.log(`Imported ${recordCount} Codex hook records as ${events.length} OD4A events to ${destinationPath}`);
+}
+
 async function exportJsonl(packageDir, outputPath) {
   const sourcePath = resolve(process.cwd(), packageDir, "data", "jsonl", "events.jsonl");
 
@@ -1043,6 +1231,7 @@ Usage:
   od4a init [package-dir]
   od4a import <source-jsonl> [package-dir]
   od4a import-openai-api <app-log-jsonl> [package-dir]
+  od4a import-codex-hook <hook-jsonl> [package-dir]
   od4a export [package-dir] [output-jsonl]
   od4a scan [package-dir]
   od4a report [package-dir] [output-json]
@@ -1058,8 +1247,8 @@ Usage:
   od4a help
 
 Current commands are intentionally narrow. The initial CLI only performs local
-package scaffolding, JSONL import/export, OpenAI API app-side log normalization,
-risk scanning, redaction reporting, preview summaries, fail-closed package
+package scaffolding, JSONL import/export, first adapter normalization, risk
+scanning, redaction reporting, preview summaries, fail-closed package
 validation, draft consent receipt generation, consent validation, withdrawal
 records, and manifest inspection.
 `);
@@ -1082,6 +1271,13 @@ switch (command) {
       process.exit(1);
     }
     await importOpenAiApiLog(args[1], args[2] ?? ".");
+    break;
+  case "import-codex-hook":
+    if (args.length < 2) {
+      console.error("Usage: od4a import-codex-hook <hook-jsonl> [package-dir]");
+      process.exit(1);
+    }
+    await importCodexHookLog(args[1], args[2] ?? ".");
     break;
   case "export":
     await exportJsonl(args[1] ?? ".", args[2]);

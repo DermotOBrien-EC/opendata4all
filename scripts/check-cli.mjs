@@ -30,6 +30,8 @@ async function main() {
   const packageDir = join(workDir, "package");
   const openAiPackageDir = join(workDir, "openai-package");
   const openAiLogPath = join(workDir, "openai-api-log.jsonl");
+  const codexPackageDir = join(workDir, "codex-package");
+  const codexHookPath = join(workDir, "codex-hook-log.jsonl");
   const sourcePath = join(workDir, "records.jsonl");
   const exportPath = join(workDir, "exported.jsonl");
   const jsonl = '{"id":1}\r\n\r\n{"id":2}\r\n';
@@ -40,6 +42,7 @@ async function main() {
     "consent-draft",
     "init",
     "import",
+    "import-codex-hook",
     "import-openai-api",
     "export",
     "inspect",
@@ -180,6 +183,72 @@ async function main() {
   );
   const openAiScan = runCli(["scan", openAiPackageDir]);
   assert(openAiScan.status === 0, "scan should accept normalized OpenAI API events");
+
+  const privateTranscriptPath = "/Users/example/.codex/private/transcript.jsonl";
+  const privateEnvValue = "OPENAI_API_KEY=sk-abcdefghijklmnopqrstuvwxyz0123456789AB";
+  await writeFile(
+    codexHookPath,
+    `${JSON.stringify({
+      hook_event_name: "UserPromptSubmit",
+      session_id: "codex-session-001",
+      timestamp: "2026-06-30T09:00:00.000Z",
+      prompt: "Review this local slice.",
+      transcript_path: privateTranscriptPath,
+      environment: {
+        OPENAI_API_KEY: privateEnvValue,
+      },
+    })}\n${JSON.stringify({
+      hook_event_name: "PreToolUse",
+      session_id: "codex-session-001",
+      timestamp: "2026-06-30T09:01:00.000Z",
+      tool_name: "shell",
+      command: "npm run validate",
+      decision: "allow",
+      cwd: "/Users/example/private/repo",
+      env: {
+        OPENAI_API_KEY: privateEnvValue,
+      },
+    })}\n${JSON.stringify({
+      hook_event_name: "PreToolUse",
+      session_id: "codex-session-001",
+      timestamp: "2026-06-30T09:01:00.000Z",
+      tool_name: "shell",
+      command: "npm run validate",
+      decision: "allow",
+      cwd: "/Users/example/private/repo",
+      env: {
+        OPENAI_API_KEY: privateEnvValue,
+      },
+    })}\n`,
+  );
+  const codexImport = runCli(["import-codex-hook", codexHookPath, codexPackageDir]);
+  assert(codexImport.status === 0, "import-codex-hook command should succeed");
+  const codexEventText = await readFile(join(codexPackageDir, "data", "jsonl", "events.jsonl"), "utf8");
+  const codexEvents = codexEventText
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line));
+  assert(codexEvents.length === 3, "import-codex-hook should normalize message and tool hook records");
+  assert(
+    new Set(codexEvents.map((event) => event.event_id)).size === codexEvents.length,
+    "duplicate Codex hook records should still produce unique event IDs",
+  );
+  assert(
+    codexEvents.every((event) => event.source.adapter_name === "od4a-codex-hook"),
+    "Codex hook events should identify the source adapter",
+  );
+  assert(
+    codexEvents.every((event) => event.source.capture_method === "documented_hook"),
+    "Codex hook events should use documented_hook capture method",
+  );
+  assert(codexEvents[0].actor.type === "user", "Codex prompt hooks should map to user actor type");
+  assert(codexEvents[1].actor.type === "tool", "Codex tool hooks should map to tool actor type");
+  assert(codexEvents[1].data.command === "npm run validate", "Codex tool hooks should preserve scoped command text");
+  for (const excludedValue of [privateTranscriptPath, privateEnvValue, "/Users/example/private/repo"]) {
+    assert(!codexEventText.includes(excludedValue), "Codex hook import should not copy private hook metadata");
+  }
+  const codexScan = runCli(["scan", codexPackageDir]);
+  assert(codexScan.status === 0, "scan should accept normalized Codex hook events");
 
   const fakeSecret = "sk-abcdefghijklmnopqrstuvwxyz0123456789AB";
   const secretReportPath = join(workDir, "secret-redaction-report.json");

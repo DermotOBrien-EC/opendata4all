@@ -45,6 +45,12 @@ fields, then normalizes them into OD4A events for local review. This is not a
 cloud export client and does not read provider dashboards, credentials, abuse
 logs, or private product storage.
 
+It also includes `od4a import-codex-hook <hook-jsonl> [package-dir]` for
+user-owned Codex hook records. The prototype accepts prompt/message and
+tool-command JSONL records, preserves only allowlisted interaction fields, and
+drops environment values, working directories, transcript paths, and unknown
+payload fields by default.
+
 Do not depend on private app or cloud internals, unstable transcript files, or
 platform-side abuse-monitoring logs.
 
