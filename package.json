@@ -8,10 +8,11 @@
     "od4a": "./bin/od4a.mjs"
   },
   "scripts": {
-    "validate": "npm run validate:schemas && npm run validate:examples && npm run validate:cli",
+    "validate": "npm run validate:schemas && npm run validate:examples && npm run validate:cli && npm run validate:templates",
     "validate:schemas": "node scripts/check-schemas.mjs",
     "validate:examples": "node scripts/check-examples.mjs",
-    "validate:cli": "node scripts/check-cli.mjs"
+    "validate:cli": "node scripts/check-cli.mjs",
+    "validate:templates": "node scripts/check-policy-templates.mjs"
   },
   "engines": {
     "node": ">=20"

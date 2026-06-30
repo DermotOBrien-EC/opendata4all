@@ -60,6 +60,8 @@ research queries.
 - [Consent Model](docs/consent-model.md)
 - [Adapter Strategy](docs/adapter-strategy.md)
 - [Dataset Package Specification](docs/dataset-package-spec.md)
+- [Controlled Access Policy Template](docs/controlled-access-policy-template.md)
+- [Data Use Agreement Template](docs/data-use-agreement-template.md)
 - [Validation](docs/validation.md)
 - [MVP Roadmap](docs/mvp-roadmap.md)
 - [Governance](GOVERNANCE.md)

@@ -10,8 +10,9 @@ npm run validate
 
 It checks that all schema files parse as JSON, that the current privacy and
 governance invariants remain represented in the schemas, that checked-in
-example packages are internally consistent, and that the local CLI commands keep
-working against disposable fixtures.
+example packages are internally consistent, that the local CLI commands keep
+working against disposable fixtures, and that controlled-access policy templates
+keep required donor-protection guardrails.
 
 The CI workflow runs the same command on pull requests and pushes to `main`.
 The workflow does not require dependency installation because the CLI and
@@ -31,6 +32,16 @@ validation scripts use only the Node.js standard library.
 - Controlled, public, and reproducibility releases cannot include raw-data files.
 - Controlled, public, and reproducibility releases must reference consent
   receipts and redaction reports.
+
+## Current Template Invariants
+
+- Controlled-access templates must warn that they are not legal advice.
+- Controlled-access templates must cover `controlled_research`,
+  `secure_enclave`, quarantine, manifest hashes, consent receipts, and
+  redaction reports.
+- Controlled-access templates must include restrictions on re-identification,
+  redistribution, public model training or fine-tuning, takedowns, withdrawal,
+  deletion attestation, security controls, and publication review.
 
 ## Later Validation
 

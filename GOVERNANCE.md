@@ -32,6 +32,17 @@ Every release containing donated records should have:
 - Takedown and withdrawal process verification.
 - Dataset card and release manifest.
 
+## Controlled Access Templates
+
+Local starting points for non-public access are maintained in:
+
+- [Controlled Access Policy Template](docs/controlled-access-policy-template.md)
+- [Data Use Agreement Template](docs/data-use-agreement-template.md)
+
+They are guardrail templates, not legal advice. Before accepting real donations
+or sharing controlled records, the steward must adapt them to the jurisdiction,
+consent receipts, manifest, redaction reports, and institutional review process.
+
 ## Licensing Posture
 
 - Code: Apache-2.0.

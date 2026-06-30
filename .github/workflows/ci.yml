@@ -27,6 +27,7 @@ jobs:
           node --check scripts/check-schemas.mjs
           node --check scripts/check-examples.mjs
           node --check scripts/check-cli.mjs
+          node --check scripts/check-policy-templates.mjs
           node --check bin/od4a.mjs
 
       - name: Validate project fixtures
