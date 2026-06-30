@@ -29,7 +29,17 @@ async function main() {
 
   const help = runCli(["help"]);
   assert(help.status === 0, "help command should succeed");
-  for (const command of ["init", "import", "export", "inspect", "preview", "report", "scan", "validate"]) {
+  for (const command of [
+    "init",
+    "import",
+    "export",
+    "inspect",
+    "preview",
+    "report",
+    "scan",
+    "validate",
+    "validate-package",
+  ]) {
     assert(help.stdout.includes(`od4a ${command}`), `help should list ${command}`);
   }
 
@@ -77,6 +87,13 @@ async function main() {
   assert(cleanScan.status === 0, "scan should pass clean JSONL");
   assert(cleanScan.stdout.includes("Findings: 0"), "scan should report zero findings");
 
+  const cleanPackageValidation = runCli(["validate-package", packageDir]);
+  assert(cleanPackageValidation.status === 0, "validate-package should pass clean JSONL");
+  assert(
+    cleanPackageValidation.stdout.includes("Package validation: passed"),
+    "clean package validation should pass",
+  );
+
   const exportedStdout = runCli(["export", packageDir]);
   assert(exportedStdout.status === 0, "stdout export should succeed");
   assert(exportedStdout.stdout === jsonl, "stdout export should match imported JSONL");
@@ -101,6 +118,12 @@ async function main() {
   assert(secretPreview.stdout.includes("Decision: blocked"), "preview should include blocked decisions");
   assert(secretPreview.stdout.includes("secret.openai_api_key"), "preview should include detector labels");
   assert(!secretPreview.stdout.includes(fakeSecret), "preview must not echo detected secret values");
+
+  const secretPackageValidation = runCli(["validate-package", packageDir]);
+  assert(secretPackageValidation.status === 2, "validate-package should fail closed on high-risk findings");
+  assert(secretPackageValidation.stdout.includes("Package validation: failed"), "high-risk package should fail");
+  assert(secretPackageValidation.stdout.includes("Decision: blocked"), "high-risk package should be blocked");
+  assert(!secretPackageValidation.stdout.includes(fakeSecret), "package validation must not echo secret values");
 
   const secretReport = runCli(["report", packageDir, secretReportPath]);
   assert(secretReport.status === 0, "report should write high-risk redaction reports");
@@ -154,6 +177,14 @@ async function main() {
   }
   for (const rawValue of [fakeEmail, fakeUrl, fakePath, "192.0.2.10"]) {
     assert(!piiPreview.stdout.includes(rawValue), "preview must not echo personal or private values");
+  }
+
+  const piiPackageValidation = runCli(["validate-package"], { cwd: packageDir });
+  assert(piiPackageValidation.status === 0, "validate-package should not fail closed on medium-risk findings");
+  assert(piiPackageValidation.stdout.includes("Package validation: passed"), "medium-risk package should pass gate");
+  assert(piiPackageValidation.stdout.includes("Decision: review_required"), "medium-risk package should require review");
+  for (const rawValue of [fakeEmail, fakeUrl, fakePath, "192.0.2.10"]) {
+    assert(!piiPackageValidation.stdout.includes(rawValue), "package validation must not echo personal values");
   }
 
   const piiReport = runCli(["report", packageDir]);

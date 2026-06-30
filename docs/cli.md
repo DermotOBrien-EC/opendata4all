@@ -14,6 +14,7 @@ project's validation surface before any adapter or packaging workflow is added.
 - `od4a scan [package-dir]`
 - `od4a report [package-dir] [output-json]`
 - `od4a preview [package-dir]`
+- `od4a validate-package [package-dir]`
 - `od4a inspect [package-dir]`
 - `od4a help`
 
@@ -36,6 +37,9 @@ project's validation surface before any adapter or packaging workflow is added.
 - `preview` prints a local risk summary with record counts, detector classes,
   counts, and decision state. It does not render raw transcript text or matched
   values.
+- `validate-package` runs the local package risk gate. It exits with status `2`
+  when unresolved high-risk findings block export, and does not render raw
+  transcript text or matched values.
 - `inspect` reads an OD4A package manifest from the current directory or a
   relative package directory and prints a summary without opening any network
   connection.

@@ -385,6 +385,23 @@ async function previewPackage(packageDir) {
   }
 }
 
+async function validatePackage(packageDir) {
+  const analysis = await analyzePackage(packageDir);
+  const report = buildRedactionReport(analysis);
+  const failed = report.decision === "blocked";
+
+  console.log(`Package validation: ${failed ? "failed" : "passed"}`);
+  console.log(`Records: ${analysis.recordCount}`);
+  console.log(`Findings: ${analysis.findings.length}`);
+  console.log(`Blocked findings: ${report.summary.blocked_findings}`);
+  console.log(`Decision: ${report.decision}`);
+  console.log(`Review required: ${report.summary.review_required ? "yes" : "no"}`);
+
+  if (failed) {
+    process.exit(2);
+  }
+}
+
 async function inspectPackage(packageDir) {
   const manifestPath = resolve(process.cwd(), packageDir, "metadata", "manifest.json");
 
@@ -421,6 +438,7 @@ Usage:
   od4a scan [package-dir]
   od4a report [package-dir] [output-json]
   od4a preview [package-dir]
+  od4a validate-package [package-dir]
   od4a validate
   od4a validate-schemas
   od4a validate-examples
@@ -429,7 +447,7 @@ Usage:
 
 Current commands are intentionally narrow. The initial CLI only performs local
 package scaffolding, JSONL import/export, risk scanning, redaction reporting,
-preview summaries, validation, and manifest inspection.
+preview summaries, fail-closed package validation, and manifest inspection.
 `);
 }
 
@@ -455,6 +473,9 @@ switch (command) {
     break;
   case "preview":
     await previewPackage(args[1] ?? ".");
+    break;
+  case "validate-package":
+    await validatePackage(args[1] ?? ".");
     break;
   case "validate":
     runNodeScripts([
