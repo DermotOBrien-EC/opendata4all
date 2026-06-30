@@ -16,6 +16,7 @@ project's validation surface before any adapter or packaging workflow is added.
 - `od4a preview [package-dir]`
 - `od4a validate-package [package-dir]`
 - `od4a consent-draft [package-dir] [output-json]`
+- `od4a validate-consent <receipt-json> [package-dir]`
 - `od4a inspect [package-dir]`
 - `od4a help`
 
@@ -43,6 +44,9 @@ project's validation surface before any adapter or packaging workflow is added.
   transcript text or matched values.
 - `consent-draft` writes a draft consent receipt template bound to the exact
   package manifest hash. It does not record active consent.
+- `validate-consent` checks consent receipt scope fields and, when a package
+  directory is supplied, verifies that `package_manifest_hash` matches the exact
+  package manifest bytes.
 - `inspect` reads an OD4A package manifest from the current directory or a
   relative package directory and prints a summary without opening any network
   connection.

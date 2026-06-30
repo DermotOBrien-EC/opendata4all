@@ -76,6 +76,7 @@ od4a report od4a-package
 od4a preview od4a-package
 od4a validate-package od4a-package
 od4a consent-draft od4a-package
+od4a validate-consent od4a-package/receipts/consent-draft.json od4a-package
 od4a export od4a-package
 od4a validate
 od4a inspect examples/minimal-package

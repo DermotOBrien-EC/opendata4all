@@ -17,6 +17,8 @@ Consent must be explicit, informed, granular, recorded, and revocable.
 The CLI may generate draft receipt templates to help users and stewards review
 the exact manifest hash and scope fields. A draft receipt is not active consent;
 activation requires an affirmative user action and an actionable withdrawal path.
+Local validation can check required fields, scope boundaries, and manifest-hash
+binding, but it does not decide whether consent is legally valid.
 
 ## Granular Scopes
 

@@ -44,6 +44,7 @@ async function main() {
     "report",
     "scan",
     "validate",
+    "validate-consent",
     "validate-package",
   ]) {
     assert(help.stdout.includes(`od4a ${command}`), `help should list ${command}`);
@@ -263,6 +264,44 @@ async function main() {
   assert(
     !("url" in parsedConsentDraft.withdrawal) && !("email" in parsedConsentDraft.withdrawal),
     "draft consent receipt should not invent an actionable withdrawal path",
+  );
+
+  const consentValidation = runCli(["validate-consent", "receipts/consent-draft.json", "."], { cwd: packageDir });
+  assert(consentValidation.status === 0, "validate-consent should pass generated draft receipts");
+  assert(consentValidation.stdout.includes("Consent validation: passed"), "valid consent draft should pass");
+
+  const wrongHashConsent = {
+    ...parsedConsentDraft,
+    package_manifest_hash: `sha256:${"0".repeat(64)}`,
+  };
+  await writeFile(join(packageDir, "receipts", "wrong-hash-consent.json"), `${JSON.stringify(wrongHashConsent)}\n`);
+  const wrongHashValidation = runCli(["validate-consent", "receipts/wrong-hash-consent.json", "."], {
+    cwd: packageDir,
+  });
+  assert(wrongHashValidation.status === 1, "validate-consent should reject manifest hash mismatches");
+  assert(
+    wrongHashValidation.stdout.includes("package_manifest_hash_mismatch"),
+    "validate-consent should report manifest hash mismatch",
+  );
+
+  const activeWithoutWithdrawalPath = {
+    ...parsedConsentDraft,
+    status: "active",
+  };
+  await writeFile(
+    join(packageDir, "receipts", "active-missing-withdrawal.json"),
+    `${JSON.stringify(activeWithoutWithdrawalPath)}\n`,
+  );
+  const activeWithdrawalValidation = runCli(
+    ["validate-consent", "receipts/active-missing-withdrawal.json", "."],
+    {
+      cwd: packageDir,
+    },
+  );
+  assert(activeWithdrawalValidation.status === 1, "validate-consent should reject active consent without a path");
+  assert(
+    activeWithdrawalValidation.stdout.includes("withdrawal_path_required_for_active_consent"),
+    "validate-consent should report missing active withdrawal path",
   );
 
   await writeFile(sourcePath, '{"id":1}\nnot json\n');

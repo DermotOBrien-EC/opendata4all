@@ -517,6 +517,161 @@ async function writeConsentDraft(packageDir, outputPath) {
   console.log(`Package manifest hash: ${draft.package_manifest_hash}`);
 }
 
+async function readJsonFile(jsonPath, description) {
+  let contents;
+  try {
+    contents = await readFile(jsonPath, "utf8");
+  } catch (error) {
+    console.error(`Unable to read ${description} at ${jsonPath}`);
+    console.error(error.message);
+    process.exit(1);
+  }
+
+  try {
+    return JSON.parse(contents);
+  } catch (error) {
+    console.error(`Invalid JSON in ${description} at ${jsonPath}`);
+    console.error(error.message);
+    process.exit(1);
+  }
+}
+
+function isNonEmptyString(value) {
+  return typeof value === "string" && value.length > 0;
+}
+
+function hasNonEmptyArray(value) {
+  return Array.isArray(value) && value.length > 0;
+}
+
+function pushIssue(issues, code) {
+  if (!issues.includes(code)) {
+    issues.push(code);
+  }
+}
+
+function validateConsentTimeScope(timeScope, receipt, issues) {
+  if (!timeScope || typeof timeScope !== "object") {
+    pushIssue(issues, "source_scope.time_scope_required");
+    return;
+  }
+
+  if (!["one_time", "fixed_range", "rolling_with_expiry"].includes(timeScope.mode)) {
+    pushIssue(issues, "source_scope.time_scope.mode_invalid");
+    return;
+  }
+
+  if (timeScope.mode === "one_time" && !isNonEmptyString(receipt.package_manifest_hash)) {
+    pushIssue(issues, "package_manifest_hash_required_for_one_time");
+  }
+
+  if (timeScope.mode === "fixed_range" && (!isNonEmptyString(timeScope.from) || !isNonEmptyString(timeScope.to))) {
+    pushIssue(issues, "source_scope.time_scope.fixed_range_required");
+  }
+
+  const hasExpiry = isNonEmptyString(timeScope.expires_at);
+  const hasRange = isNonEmptyString(timeScope.from) && isNonEmptyString(timeScope.to);
+  if (timeScope.mode === "rolling_with_expiry" && !hasExpiry && !hasRange) {
+    pushIssue(issues, "source_scope.time_scope.rolling_boundary_required");
+  }
+}
+
+function validateConsentReceipt(receipt, expectedManifestHash) {
+  const issues = [];
+  const activeStatuses = ["active", "withdrawn", "deleted", "expired", "superseded"];
+
+  if (!receipt || typeof receipt !== "object" || Array.isArray(receipt)) {
+    return ["receipt_object_required"];
+  }
+
+  if (receipt.schema_version !== "0.1.0") {
+    pushIssue(issues, "schema_version_invalid");
+  }
+  for (const field of ["receipt_id", "created_at", "notice_version", "status"]) {
+    if (!isNonEmptyString(receipt[field])) {
+      pushIssue(issues, `${field}_required`);
+    }
+  }
+
+  if (!["draft", ...activeStatuses].includes(receipt.status)) {
+    pushIssue(issues, "status_invalid");
+  }
+
+  if (!receipt.controller || !isNonEmptyString(receipt.controller.name) || !isNonEmptyString(receipt.controller.contact)) {
+    pushIssue(issues, "controller_required");
+  }
+
+  if (!receipt.source_scope || typeof receipt.source_scope !== "object") {
+    pushIssue(issues, "source_scope_required");
+  } else {
+    if (!hasNonEmptyArray(receipt.source_scope.sources)) {
+      pushIssue(issues, "source_scope.sources_required");
+    }
+    if (!hasNonEmptyArray(receipt.source_scope.adapters)) {
+      pushIssue(issues, "source_scope.adapters_required");
+    } else if (
+      receipt.source_scope.adapters.some((adapter) => !isNonEmptyString(adapter?.name) || !isNonEmptyString(adapter?.version))
+    ) {
+      pushIssue(issues, "source_scope.adapters_metadata_required");
+    }
+    validateConsentTimeScope(receipt.source_scope.time_scope, receipt, issues);
+  }
+
+  for (const field of ["data_classes", "purposes", "recipient_classes"]) {
+    if (!hasNonEmptyArray(receipt[field])) {
+      pushIssue(issues, `${field}_required`);
+    }
+  }
+
+  if (!["local_review", "controlled_research", "public_release", "reproducibility_snapshot"].includes(receipt.release_tier)) {
+    pushIssue(issues, "release_tier_invalid");
+  }
+
+  if (!receipt.retention || !["delete_after_review", "fixed_period", "until_withdrawn", "archival"].includes(receipt.retention.class)) {
+    pushIssue(issues, "retention.class_invalid");
+  } else if (receipt.retention.class === "fixed_period" && !isNonEmptyString(receipt.retention.expires_at)) {
+    pushIssue(issues, "retention.expires_at_required");
+  }
+
+  if (!receipt.withdrawal || !isNonEmptyString(receipt.withdrawal.method)) {
+    pushIssue(issues, "withdrawal.method_required");
+  } else if (activeStatuses.includes(receipt.status) && !isNonEmptyString(receipt.withdrawal.url) && !isNonEmptyString(receipt.withdrawal.email)) {
+    pushIssue(issues, "withdrawal_path_required_for_active_consent");
+  }
+
+  if (activeStatuses.includes(receipt.status) && !isNonEmptyString(receipt.package_manifest_hash)) {
+    pushIssue(issues, "package_manifest_hash_required_for_active_consent");
+  }
+
+  if (expectedManifestHash && receipt.package_manifest_hash !== expectedManifestHash) {
+    pushIssue(issues, "package_manifest_hash_mismatch");
+  }
+
+  return issues;
+}
+
+async function validateConsentCommand(receiptPath, packageDir) {
+  if (!receiptPath) {
+    console.error("Usage: od4a validate-consent <receipt-json> [package-dir]");
+    process.exit(1);
+  }
+
+  const resolvedReceiptPath = resolve(process.cwd(), receiptPath);
+  const receipt = await readJsonFile(resolvedReceiptPath, "consent receipt");
+  const expectedManifestHash = packageDir ? (await readPackageManifest(packageDir)).manifestHash : null;
+  const issues = validateConsentReceipt(receipt, expectedManifestHash);
+
+  console.log(`Consent validation: ${issues.length === 0 ? "passed" : "failed"}`);
+  console.log(`Issues: ${issues.length}`);
+  for (const issue of issues) {
+    console.log(`- ${issue}`);
+  }
+
+  if (issues.length > 0) {
+    process.exit(1);
+  }
+}
+
 async function inspectPackage(packageDir) {
   const { manifest } = await readPackageManifest(packageDir);
 
@@ -546,6 +701,7 @@ Usage:
   od4a preview [package-dir]
   od4a validate-package [package-dir]
   od4a consent-draft [package-dir] [output-json]
+  od4a validate-consent <receipt-json> [package-dir]
   od4a validate
   od4a validate-schemas
   od4a validate-examples
@@ -555,7 +711,7 @@ Usage:
 Current commands are intentionally narrow. The initial CLI only performs local
 package scaffolding, JSONL import/export, risk scanning, redaction reporting,
 preview summaries, fail-closed package validation, draft consent receipt
-generation, and manifest inspection.
+generation, consent validation, and manifest inspection.
 `);
 }
 
@@ -587,6 +743,9 @@ switch (command) {
     break;
   case "consent-draft":
     await writeConsentDraft(args[1] ?? ".", args[2]);
+    break;
+  case "validate-consent":
+    await validateConsentCommand(args[1], args[2]);
     break;
   case "validate":
     runNodeScripts([
