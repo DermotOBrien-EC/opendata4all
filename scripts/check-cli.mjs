@@ -30,6 +30,8 @@ async function main() {
   const packageDir = join(workDir, "package");
   const openAiPackageDir = join(workDir, "openai-package");
   const openAiLogPath = join(workDir, "openai-api-log.jsonl");
+  const hfSampleDir = join(workDir, "hf-sample");
+  const blockedHfSampleDir = join(workDir, "blocked-hf-sample");
   const codexPackageDir = join(workDir, "codex-package");
   const codexHookPath = join(workDir, "codex-hook-log.jsonl");
   const claudePackageDir = join(workDir, "claude-package");
@@ -50,6 +52,7 @@ async function main() {
     "import-openai-api",
     "manifest",
     "export",
+    "hf-sample",
     "inspect",
     "preview",
     "report",
@@ -223,6 +226,40 @@ async function main() {
   ]) {
     assert(!openAiCardText.includes(rawValue), "dataset-card must not include raw event text");
   }
+
+  const blockedHfSample = runCli(["hf-sample", openAiPackageDir, blockedHfSampleDir]);
+  assert(blockedHfSample.status === 1, "hf-sample should reject local-review packages");
+  assert(
+    blockedHfSample.stdout.includes("release_tier_must_be_public_release"),
+    "hf-sample should explain release-tier failures",
+  );
+  for (const rawValue of [
+    "Summarize consent requirements.",
+    "Use explicit, revocable consent.",
+    "Private app internals and undocumented storage.",
+  ]) {
+    assert(!blockedHfSample.stdout.includes(rawValue), "hf-sample rejection output must not echo raw event text");
+  }
+
+  const hfSample = runCli(["hf-sample", "examples/minimal-package", hfSampleDir]);
+  assert(hfSample.status === 0, "hf-sample should materialize public-safe examples");
+  assert(hfSample.stdout.includes("Release tier: public_release"), "hf-sample should summarize release tier");
+  const hfReadme = await readFile(join(hfSampleDir, "README.md"), "utf8");
+  assert(hfReadme.includes("configs:"), "hf-sample README should include Hugging Face data_files config");
+  assert(hfReadme.includes('path: "data/jsonl/events.jsonl"'), "hf-sample README should point to JSONL data");
+  assert(hfReadme.includes("public-safe"), "hf-sample README should carry public-safe metadata");
+  assert(
+    !hfReadme.includes("Synthetic prompt for schema validation."),
+    "hf-sample README must not include raw event text",
+  );
+  assert(
+    (await readFile(join(hfSampleDir, "data", "jsonl", "events.jsonl"), "utf8")) ===
+      (await readFile(join(root, "examples", "minimal-package", "data", "jsonl", "events.jsonl"), "utf8")),
+    "hf-sample should copy the package JSONL without changing bytes",
+  );
+  await readFile(join(hfSampleDir, "metadata", "manifest.json"), "utf8");
+  await readFile(join(hfSampleDir, "receipts", "consent-001.json"), "utf8");
+  await readFile(join(hfSampleDir, "reports", "redaction-report.json"), "utf8");
 
   const privateTranscriptPath = "/Users/example/.codex/private/transcript.jsonl";
   const privateEnvValue = "OPENAI_API_KEY=sk-abcdefghijklmnopqrstuvwxyz0123456789AB";

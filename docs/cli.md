@@ -16,6 +16,7 @@ local validation, packaging, consent, risk review, and first adapter surfaces.
 - `od4a export [package-dir] [output-jsonl]`
 - `od4a manifest [package-dir]`
 - `od4a dataset-card [package-dir] [output-md]`
+- `od4a hf-sample [package-dir] [output-dir]`
 - `od4a scan [package-dir]`
 - `od4a report [package-dir] [output-json]`
 - `od4a preview [package-dir]`
@@ -61,6 +62,12 @@ local validation, packaging, consent, risk review, and first adapter surfaces.
   redaction references, license/access terms, and safety notes without rendering
   raw event text. Generated cards are local metadata artifacts and are not
   publication approval.
+- `hf-sample` writes a local Hugging Face dataset-style directory containing a
+  generated root `README.md`, the manifest, listed JSONL data files, consent
+  receipts, and redaction reports. It refuses non-public, local-review,
+  raw-data, stale-checksum, failed-validation, non-active-consent, and
+  non-publishable-redaction packages. It does not upload, publish, or contact
+  Hugging Face.
 - `scan` checks canonical JSONL for deterministic risk patterns such as private
   keys, API tokens, email addresses, IP addresses, full URLs, and local file
   paths. It reports detector labels and physical JSONL line numbers, not raw

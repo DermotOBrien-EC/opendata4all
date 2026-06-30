@@ -39,6 +39,13 @@ manifest. The generated card summarizes metadata, consent and redaction
 references, source adapters, license/access terms, and safety notes without
 including raw interaction text.
 
+`od4a hf-sample` can materialize a local Hugging Face dataset-style directory
+from a public-safe package. It writes a root `README.md` with dataset card
+front matter and copies the manifest, listed JSONL data files, consent receipts,
+and redaction reports. The command fails closed for local-review packages, raw
+files, failed validation, stale file checksums, non-active consent, or
+non-publishable redaction reports. It is not an upload or publication command.
+
 ## Required Manifest Concepts
 
 - Package ID and version.

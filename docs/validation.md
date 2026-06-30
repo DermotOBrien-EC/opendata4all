@@ -32,6 +32,9 @@ validation scripts use only the Node.js standard library.
 - Controlled, public, and reproducibility releases cannot include raw-data files.
 - Controlled, public, and reproducibility releases must reference consent
   receipts and redaction reports.
+- Local Hugging Face sample generation must fail closed unless the package is a
+  public release with passed validation, active consent, publishable redaction
+  reports, current checksums, and no raw-data files.
 
 ## Current Template Invariants
 

@@ -78,6 +78,7 @@ od4a import-codex-hook ./codex-hook-log.jsonl od4a-package
 od4a import-claude-code-hook ./claude-code-hook-log.jsonl od4a-package
 od4a manifest od4a-package
 od4a dataset-card od4a-package
+od4a hf-sample examples/minimal-package ./hf-sample
 od4a scan od4a-package
 od4a report od4a-package
 od4a preview od4a-package

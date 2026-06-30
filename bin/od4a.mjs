@@ -1,9 +1,9 @@
 #!/usr/bin/env node
-import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
-import { basename, dirname, resolve } from "node:path";
+import { basename, dirname, isAbsolute, relative, resolve } from "node:path";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, "..");
@@ -1087,6 +1087,302 @@ async function writeDatasetCard(packageDir, outputPath) {
   console.log(`Validation: ${manifest.validation?.status ?? "(unknown)"}`);
 }
 
+function hfLicenseKey(manifest) {
+  const id = markdownCell(manifest.license?.id ?? "");
+
+  if (!id || id === "NOASSERTION") {
+    return "other";
+  }
+
+  return id.toLowerCase();
+}
+
+function hfSizeCategory(rowCount) {
+  if (rowCount < 1_000) {
+    return "n<1K";
+  }
+  if (rowCount < 10_000) {
+    return "1K<n<10K";
+  }
+  if (rowCount < 100_000) {
+    return "10K<n<100K";
+  }
+  if (rowCount < 1_000_000) {
+    return "100K<n<1M";
+  }
+
+  return "1M<n<10M";
+}
+
+function resolvePackageFile(packageRoot, relativePath, description) {
+  if (!isNonEmptyString(relativePath) || isAbsolute(relativePath) || relativePath.includes("\0")) {
+    throw new Error(`${description}_path_invalid`);
+  }
+
+  const resolvedPath = resolve(packageRoot, relativePath);
+  const relativePathFromRoot = relative(packageRoot, resolvedPath);
+  if (
+    relativePathFromRoot.length === 0 ||
+    relativePathFromRoot.startsWith("..") ||
+    isAbsolute(relativePathFromRoot)
+  ) {
+    throw new Error(`${description}_path_outside_package`);
+  }
+
+  return resolvedPath;
+}
+
+async function fileIntegrity(packageRoot, file) {
+  const filePath = resolvePackageFile(packageRoot, file.path, "manifest_file");
+  const issues = [];
+  let contents;
+
+  try {
+    contents = await readFile(filePath);
+  } catch {
+    return [`manifest_file_read_failed:${file.path}`];
+  }
+
+  if (isNonEmptyString(file.sha256) && file.sha256 !== sha256Hex(contents)) {
+    issues.push(`file_sha256_mismatch:${file.path}`);
+  }
+
+  if (Number.isInteger(file.bytes) && file.bytes !== contents.byteLength) {
+    issues.push(`file_byte_count_mismatch:${file.path}`);
+  }
+
+  if (file.media_type === "application/jsonl" && Number.isInteger(file.row_count)) {
+    const rowCount = jsonlLines(contents).length;
+    if (file.row_count !== rowCount) {
+      issues.push(`file_row_count_mismatch:${file.path}`);
+    }
+  }
+
+  return issues;
+}
+
+async function readPackageJsonFile(packageRoot, relativePath, description) {
+  const filePath = resolvePackageFile(packageRoot, relativePath, description);
+
+  let contents;
+  try {
+    contents = await readFile(filePath, "utf8");
+  } catch {
+    throw new Error(`${description}_read_failed:${relativePath}`);
+  }
+
+  try {
+    return JSON.parse(contents);
+  } catch {
+    throw new Error(`${description}_json_invalid:${relativePath}`);
+  }
+}
+
+async function validateHfSamplePackage(packageRoot, manifest, manifestHash) {
+  const issues = [];
+  const files = Array.isArray(manifest.files) ? manifest.files : [];
+  const dataFiles = files.filter((file) => file.media_type === "application/jsonl");
+
+  if (manifest.release_tier !== "public_release") {
+    issues.push("release_tier_must_be_public_release");
+  }
+
+  if (manifest.validation?.status !== "passed") {
+    issues.push("manifest_validation_must_be_passed");
+  }
+
+  if (files.length === 0) {
+    issues.push("manifest_files_required");
+  }
+
+  if (dataFiles.length === 0) {
+    issues.push("hf_jsonl_data_file_required");
+  }
+
+  if (files.some((file) => file.contains_raw_data === true)) {
+    issues.push("raw_data_files_not_allowed");
+  }
+
+  if (!hasNonEmptyArray(manifest.consent_receipts)) {
+    issues.push("consent_receipts_required");
+  }
+
+  if (!hasNonEmptyArray(manifest.redaction_reports)) {
+    issues.push("redaction_reports_required");
+  }
+
+  for (const file of files) {
+    try {
+      issues.push(...(await fileIntegrity(packageRoot, file)));
+    } catch (error) {
+      issues.push(error.message);
+    }
+  }
+
+  const fileHashes = new Set(files.map((file) => file.sha256).filter(isNonEmptyString));
+
+  for (const receiptPath of manifest.consent_receipts ?? []) {
+    try {
+      const receipt = await readPackageJsonFile(packageRoot, receiptPath, "consent_receipt");
+      if (receipt.status !== "active") {
+        issues.push(`consent_receipt_not_active:${receiptPath}`);
+      }
+      if (receipt.release_tier !== "public_release") {
+        issues.push(`consent_receipt_release_tier_mismatch:${receiptPath}`);
+      }
+      if (receipt.package_manifest_hash !== manifestHash) {
+        issues.push(`consent_receipt_manifest_hash_mismatch:${receiptPath}`);
+      }
+    } catch (error) {
+      issues.push(error.message);
+    }
+  }
+
+  for (const reportPath of manifest.redaction_reports ?? []) {
+    try {
+      const report = await readPackageJsonFile(packageRoot, reportPath, "redaction_report");
+      if (report.decision !== "publishable") {
+        issues.push(`redaction_report_not_publishable:${reportPath}`);
+      }
+      if (report.summary?.blocked_findings !== 0) {
+        issues.push(`redaction_report_blocked_findings:${reportPath}`);
+      }
+      if (!fileHashes.has(report.output_hash)) {
+        issues.push(`redaction_report_output_hash_mismatch:${reportPath}`);
+      }
+    } catch (error) {
+      issues.push(error.message);
+    }
+  }
+
+  return [...new Set(issues)];
+}
+
+function buildHfDatasetReadme(manifest) {
+  const files = Array.isArray(manifest.files) ? manifest.files : [];
+  const dataFiles = files.filter((file) => file.media_type === "application/jsonl");
+  const totalRows = files.reduce((sum, file) => sum + (Number.isInteger(file.row_count) ? file.row_count : 0), 0);
+  const totalBytes = files.reduce((sum, file) => sum + (Number.isInteger(file.bytes) ? file.bytes : 0), 0);
+  const fileRows = files.map(
+    (file) =>
+      `| ${markdownCell(file.path)} | ${markdownCell(file.media_type)} | ${markdownCell(file.row_count ?? "")} | ${markdownCell(
+        file.bytes ?? "",
+      )} | ${markdownCell(file.sha256)} |`,
+  );
+  const dataFileRows = dataFiles.map((file) => `  - split: train\n    path: ${JSON.stringify(file.path)}`);
+
+  return `---
+license: ${hfLicenseKey(manifest)}
+pretty_name: ${JSON.stringify(manifest.package_id ?? "OD4A public-safe sample")}
+tags:
+- opendata4all
+- ai-interactions
+- public-safe
+- ${markdownCell(manifest.release_tier ?? "unknown")}
+size_categories:
+- ${JSON.stringify(hfSizeCategory(totalRows))}
+configs:
+- config_name: default
+  data_files:
+${dataFileRows.length > 0 ? dataFileRows.join("\n") : "  - split: train\n    path: \"data/jsonl/events.jsonl\""}
+---
+
+# ${markdownCell(manifest.package_id ?? "OD4A Public-Safe Sample")}
+
+This is a local Hugging Face dataset sample generated by \`od4a hf-sample\`.
+It is intended for public-safe OD4A fixtures that already passed consent,
+redaction, manifest, and release-tier checks.
+
+## Contents
+
+- Package ID: ${markdownCell(manifest.package_id ?? "unknown")}
+- Version: ${markdownCell(manifest.version ?? "unknown")}
+- Release tier: ${markdownCell(manifest.release_tier ?? "unknown")}
+- Validation: ${markdownCell(manifest.validation?.status ?? "unknown")}
+- JSONL rows: ${totalRows}
+- Bytes: ${totalBytes}
+
+| Path | Media type | Rows | Bytes | SHA-256 |
+| --- | --- | ---: | ---: | --- |
+${fileRows.length > 0 ? fileRows.join("\n") : "| None recorded. |  |  |  |"}
+
+## Consent And Redaction
+
+Consent receipts:
+
+${markdownList(manifest.consent_receipts)}
+
+Redaction reports:
+
+${markdownList(manifest.redaction_reports)}
+
+## Safety Notes
+
+- This sample is generated locally and is not an upload or publication action.
+- The generator refuses local-review, controlled, failed-validation, and raw-data
+  packages.
+- The dataset card does not include raw interaction text.
+`;
+}
+
+async function assertEmptyOrMissingDirectory(targetRoot) {
+  try {
+    const entries = await readdir(targetRoot);
+    if (entries.length > 0) {
+      console.error(`Refusing to write Hugging Face sample into non-empty directory: ${targetRoot}`);
+      process.exit(1);
+    }
+  } catch (error) {
+    if (error.code !== "ENOENT") {
+      throw error;
+    }
+  }
+}
+
+async function copyPackageFile(packageRoot, targetRoot, relativePath) {
+  const sourcePath = resolvePackageFile(packageRoot, relativePath, "package_file");
+  const targetPath = resolve(targetRoot, relativePath);
+
+  await mkdir(dirname(targetPath), { recursive: true });
+  await copyFile(sourcePath, targetPath);
+}
+
+async function writeHfSample(packageDir, outputDir) {
+  const packageRoot = resolve(process.cwd(), packageDir);
+  const targetRoot = resolve(process.cwd(), outputDir);
+  const { manifest, manifestHash } = await readPackageManifest(packageDir);
+  const issues = await validateHfSamplePackage(packageRoot, manifest, manifestHash);
+
+  if (issues.length > 0) {
+    console.log("Hugging Face sample validation: failed");
+    console.log(`Issues: ${issues.length}`);
+    for (const issue of issues) {
+      console.log(`- ${issue}`);
+    }
+    process.exit(1);
+  }
+
+  await assertEmptyOrMissingDirectory(targetRoot);
+  await mkdir(targetRoot, { recursive: true });
+
+  const copiedPaths = new Set([
+    "metadata/manifest.json",
+    ...manifest.files.map((file) => file.path),
+    ...manifest.consent_receipts,
+    ...manifest.redaction_reports,
+  ]);
+
+  for (const relativePath of [...copiedPaths].sort()) {
+    await copyPackageFile(packageRoot, targetRoot, relativePath);
+  }
+
+  await writeFile(resolve(targetRoot, "README.md"), buildHfDatasetReadme(manifest));
+
+  console.log(`Wrote Hugging Face sample to ${targetRoot}`);
+  console.log(`Release tier: ${manifest.release_tier}`);
+  console.log(`Files copied: ${copiedPaths.size}`);
+}
+
 const riskDetectors = [
   {
     label: "secret.private_key",
@@ -1726,6 +2022,7 @@ Usage:
   od4a export [package-dir] [output-jsonl]
   od4a manifest [package-dir]
   od4a dataset-card [package-dir] [output-md]
+  od4a hf-sample [package-dir] [output-dir]
   od4a scan [package-dir]
   od4a report [package-dir] [output-json]
   od4a preview [package-dir]
@@ -1743,7 +2040,8 @@ Current commands are intentionally narrow. The initial CLI only performs local
 package scaffolding, JSONL import/export, first adapter normalization, risk
 scanning, redaction reporting, preview summaries, fail-closed package
 validation, local manifest and dataset-card generation, draft consent receipt
-generation, consent validation, withdrawal records, and manifest inspection.
+generation, consent validation, withdrawal records, local Hugging Face sample
+materialization, and manifest inspection.
 `);
 }
 
@@ -1787,6 +2085,9 @@ switch (command) {
     break;
   case "dataset-card":
     await writeDatasetCard(args[1] ?? ".", args[2]);
+    break;
+  case "hf-sample":
+    await writeHfSample(args[1] ?? ".", args[2] ?? "hf-sample");
     break;
   case "scan":
     await scanPackage(args[1] ?? ".");
