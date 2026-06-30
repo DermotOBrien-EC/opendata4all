@@ -65,9 +65,10 @@ local validation, packaging, consent, risk review, and first adapter surfaces.
 - `hf-sample` writes a local Hugging Face dataset-style directory containing a
   generated root `README.md`, the manifest, listed JSONL data files, consent
   receipts, and redaction reports. It refuses non-public, local-review,
-  raw-data, stale-checksum, failed-validation, non-active-consent, and
-  non-publishable-redaction packages. It does not upload, publish, or contact
-  Hugging Face.
+  raw-data, omitted-raw-flag, stale-checksum, failed-validation,
+  non-active-consent, and non-publishable-redaction packages. Every copied file
+  must declare `contains_raw_data: false`. It does not upload, publish, or
+  contact Hugging Face.
 - `scan` checks canonical JSONL for deterministic risk patterns such as private
   keys, API tokens, email addresses, IP addresses, full URLs, and local file
   paths. It reports detector labels and physical JSONL line numbers, not raw

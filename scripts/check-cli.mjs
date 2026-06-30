@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
@@ -32,6 +32,8 @@ async function main() {
   const openAiLogPath = join(workDir, "openai-api-log.jsonl");
   const hfSampleDir = join(workDir, "hf-sample");
   const blockedHfSampleDir = join(workDir, "blocked-hf-sample");
+  const missingRawFlagPackageDir = join(workDir, "missing-raw-flag-package");
+  const missingRawFlagHfSampleDir = join(workDir, "missing-raw-flag-hf-sample");
   const codexPackageDir = join(workDir, "codex-package");
   const codexHookPath = join(workDir, "codex-hook-log.jsonl");
   const claudePackageDir = join(workDir, "claude-package");
@@ -260,6 +262,39 @@ async function main() {
   await readFile(join(hfSampleDir, "metadata", "manifest.json"), "utf8");
   await readFile(join(hfSampleDir, "receipts", "consent-001.json"), "utf8");
   await readFile(join(hfSampleDir, "reports", "redaction-report.json"), "utf8");
+
+  await mkdir(join(missingRawFlagPackageDir, "data", "jsonl"), { recursive: true });
+  await mkdir(join(missingRawFlagPackageDir, "metadata"), { recursive: true });
+  await mkdir(join(missingRawFlagPackageDir, "receipts"), { recursive: true });
+  await mkdir(join(missingRawFlagPackageDir, "reports"), { recursive: true });
+  await copyFile(
+    join(root, "examples", "minimal-package", "data", "jsonl", "events.jsonl"),
+    join(missingRawFlagPackageDir, "data", "jsonl", "events.jsonl"),
+  );
+  await copyFile(
+    join(root, "examples", "minimal-package", "reports", "redaction-report.json"),
+    join(missingRawFlagPackageDir, "reports", "redaction-report.json"),
+  );
+  const missingRawFlagManifest = JSON.parse(
+    await readFile(join(root, "examples", "minimal-package", "metadata", "manifest.json"), "utf8"),
+  );
+  delete missingRawFlagManifest.files[0].contains_raw_data;
+  const missingRawFlagManifestText = `${JSON.stringify(missingRawFlagManifest, null, 2)}\n`;
+  const missingRawFlagReceipt = JSON.parse(
+    await readFile(join(root, "examples", "minimal-package", "receipts", "consent-001.json"), "utf8"),
+  );
+  missingRawFlagReceipt.package_manifest_hash = sha256Hex(missingRawFlagManifestText);
+  await writeFile(join(missingRawFlagPackageDir, "metadata", "manifest.json"), missingRawFlagManifestText);
+  await writeFile(
+    join(missingRawFlagPackageDir, "receipts", "consent-001.json"),
+    `${JSON.stringify(missingRawFlagReceipt, null, 2)}\n`,
+  );
+  const missingRawFlagHfSample = runCli(["hf-sample", missingRawFlagPackageDir, missingRawFlagHfSampleDir]);
+  assert(missingRawFlagHfSample.status === 1, "hf-sample should reject files without explicit raw-data flags");
+  assert(
+    missingRawFlagHfSample.stdout.includes("contains_raw_data_false_required:data/jsonl/events.jsonl"),
+    "hf-sample should require explicit contains_raw_data false for copied files",
+  );
 
   const privateTranscriptPath = "/Users/example/.codex/private/transcript.jsonl";
   const privateEnvValue = "OPENAI_API_KEY=sk-abcdefghijklmnopqrstuvwxyz0123456789AB";

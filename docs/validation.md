@@ -34,7 +34,8 @@ validation scripts use only the Node.js standard library.
   receipts and redaction reports.
 - Local Hugging Face sample generation must fail closed unless the package is a
   public release with passed validation, active consent, publishable redaction
-  reports, current checksums, and no raw-data files.
+  reports, current checksums, and `contains_raw_data: false` declared for every
+  copied file.
 
 ## Current Template Invariants
 

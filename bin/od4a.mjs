@@ -1199,8 +1199,10 @@ async function validateHfSamplePackage(packageRoot, manifest, manifestHash) {
     issues.push("hf_jsonl_data_file_required");
   }
 
-  if (files.some((file) => file.contains_raw_data === true)) {
-    issues.push("raw_data_files_not_allowed");
+  for (const file of files) {
+    if (file.contains_raw_data !== false) {
+      issues.push(`contains_raw_data_false_required:${file.path}`);
+    }
   }
 
   if (!hasNonEmptyArray(manifest.consent_receipts)) {

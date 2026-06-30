@@ -43,8 +43,9 @@ including raw interaction text.
 from a public-safe package. It writes a root `README.md` with dataset card
 front matter and copies the manifest, listed JSONL data files, consent receipts,
 and redaction reports. The command fails closed for local-review packages, raw
-files, failed validation, stale file checksums, non-active consent, or
-non-publishable redaction reports. It is not an upload or publication command.
+files, files that omit an explicit `contains_raw_data: false`, failed
+validation, stale file checksums, non-active consent, or non-publishable
+redaction reports. It is not an upload or publication command.
 
 ## Required Manifest Concepts
 
