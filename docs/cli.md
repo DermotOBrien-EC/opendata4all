@@ -12,6 +12,7 @@ local validation, packaging, consent, risk review, and first adapter surfaces.
 - `od4a import <source-jsonl> [package-dir]`
 - `od4a import-openai-api <app-log-jsonl> [package-dir]`
 - `od4a import-codex-hook <hook-jsonl> [package-dir]`
+- `od4a import-claude-code-hook <hook-jsonl> [package-dir]`
 - `od4a export [package-dir] [output-jsonl]`
 - `od4a scan [package-dir]`
 - `od4a report [package-dir] [output-json]`
@@ -41,6 +42,12 @@ local validation, packaging, consent, risk review, and first adapter surfaces.
   only allowlisted fields, drops private hook metadata such as environment
   values, working directories, and transcript paths, writes local-review events,
   and does not call external services or inspect private Codex storage.
+- `import-claude-code-hook` reads user-owned Claude Code hook JSONL and
+  normalizes supported prompt/message and tool-command records into OD4A
+  interaction events. It uses only allowlisted fields, drops private hook
+  metadata such as environment values, working directories, transcript paths,
+  and tool input file paths, writes local-review events, and does not call
+  external services or inspect private Claude Code storage.
 - `export` copies the canonical JSONL file back out to stdout or a local file.
 - `scan` checks canonical JSONL for deterministic risk patterns such as private
   keys, API tokens, email addresses, IP addresses, full URLs, and local file

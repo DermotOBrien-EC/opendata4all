@@ -25,6 +25,12 @@ Preferred surfaces:
 - User-selected transcript import only after local preview.
 - MCP proxying for tools owned by the adapter.
 
+The local CLI prototype includes `od4a import-claude-code-hook <hook-jsonl>
+[package-dir]` for user-owned Claude Code hook records. The prototype accepts
+prompt/message and tool-command JSONL records, preserves only allowlisted
+interaction fields, and drops environment values, working directories,
+transcript paths, tool input file paths, and unknown payload fields by default.
+
 Do not scrape the TUI, intercept API traffic, read private auth files, or crawl
 historical transcript directories automatically.
 

@@ -32,6 +32,8 @@ async function main() {
   const openAiLogPath = join(workDir, "openai-api-log.jsonl");
   const codexPackageDir = join(workDir, "codex-package");
   const codexHookPath = join(workDir, "codex-hook-log.jsonl");
+  const claudePackageDir = join(workDir, "claude-package");
+  const claudeHookPath = join(workDir, "claude-code-hook-log.jsonl");
   const sourcePath = join(workDir, "records.jsonl");
   const exportPath = join(workDir, "exported.jsonl");
   const jsonl = '{"id":1}\r\n\r\n{"id":2}\r\n';
@@ -42,6 +44,7 @@ async function main() {
     "consent-draft",
     "init",
     "import",
+    "import-claude-code-hook",
     "import-codex-hook",
     "import-openai-api",
     "export",
@@ -249,6 +252,87 @@ async function main() {
   }
   const codexScan = runCli(["scan", codexPackageDir]);
   assert(codexScan.status === 0, "scan should accept normalized Codex hook events");
+
+  const privateClaudeTranscriptPath = "/Users/example/.claude/private/transcript.jsonl";
+  const privateClaudeEnvValue = "ANTHROPIC_API_KEY=sk-ant-example-private-value";
+  const privateClaudePath = "/Users/example/private/claude-repo";
+  await writeFile(
+    claudeHookPath,
+    `${JSON.stringify({
+      hook_event_name: "UserPromptSubmit",
+      session_id: "claude-session-001",
+      timestamp: "2026-06-30T10:00:00.000Z",
+      prompt: "Check the package manifest.",
+      transcript_path: privateClaudeTranscriptPath,
+      environment: {
+        ANTHROPIC_API_KEY: privateClaudeEnvValue,
+      },
+    })}\n${JSON.stringify({
+      hook_event_name: "PreToolUse",
+      session_id: "claude-session-001",
+      timestamp: "2026-06-30T10:01:00.000Z",
+      tool_name: "Bash",
+      tool_input: {
+        command: "npm run validate",
+        file_path: "/Users/example/private/secret.ts",
+      },
+      decision: "allow",
+      cwd: privateClaudePath,
+      env: {
+        ANTHROPIC_API_KEY: privateClaudeEnvValue,
+      },
+    })}\n${JSON.stringify({
+      hook_event_name: "PreToolUse",
+      session_id: "claude-session-001",
+      timestamp: "2026-06-30T10:01:00.000Z",
+      tool_name: "Bash",
+      tool_input: {
+        command: "npm run validate",
+        file_path: "/Users/example/private/secret.ts",
+      },
+      decision: "allow",
+      cwd: privateClaudePath,
+      env: {
+        ANTHROPIC_API_KEY: privateClaudeEnvValue,
+      },
+    })}\n`,
+  );
+  const claudeImport = runCli(["import-claude-code-hook", claudeHookPath, claudePackageDir]);
+  assert(claudeImport.status === 0, "import-claude-code-hook command should succeed");
+  const claudeEventText = await readFile(join(claudePackageDir, "data", "jsonl", "events.jsonl"), "utf8");
+  const claudeEvents = claudeEventText
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line));
+  assert(claudeEvents.length === 3, "import-claude-code-hook should normalize message and tool hook records");
+  assert(
+    new Set(claudeEvents.map((event) => event.event_id)).size === claudeEvents.length,
+    "duplicate Claude Code hook records should still produce unique event IDs",
+  );
+  assert(
+    claudeEvents.every((event) => event.source.adapter_name === "od4a-claude-code-hook"),
+    "Claude Code hook events should identify the source adapter",
+  );
+  assert(
+    claudeEvents.every((event) => event.source.capture_method === "documented_hook"),
+    "Claude Code hook events should use documented_hook capture method",
+  );
+  assert(claudeEvents[0].actor.type === "user", "Claude Code prompt hooks should map to user actor type");
+  assert(claudeEvents[1].actor.type === "tool", "Claude Code tool hooks should map to tool actor type");
+  assert(
+    claudeEvents[1].data.command === "npm run validate",
+    "Claude Code tool hooks should preserve scoped command text",
+  );
+  for (const excludedValue of [
+    privateClaudeTranscriptPath,
+    privateClaudeEnvValue,
+    privateClaudePath,
+    "/Users/example/private/secret.ts",
+  ]) {
+    assert(!claudeEventText.includes(excludedValue), "Claude Code hook import should not copy private hook metadata");
+  }
+  const claudeScan = runCli(["scan", claudePackageDir]);
+  assert(claudeScan.status === 0, "scan should accept normalized Claude Code hook events");
 
   const fakeSecret = "sk-abcdefghijklmnopqrstuvwxyz0123456789AB";
   const secretReportPath = join(workDir, "secret-redaction-report.json");
