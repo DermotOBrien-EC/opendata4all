@@ -11,6 +11,9 @@ const adapterFixturesDir = join(root, "examples", "adapter-fixtures");
 const openAiApiFixturePath = join(adapterFixturesDir, "openai-api-app-log.jsonl");
 const codexHookFixturePath = join(adapterFixturesDir, "codex-hook.jsonl");
 const claudeCodeHookFixturePath = join(adapterFixturesDir, "claude-code-hook.jsonl");
+const redactionCanariesDir = join(root, "examples", "redaction-canaries");
+const highRiskSecretCanaryPath = join(redactionCanariesDir, "high-risk-secret.jsonl");
+const mediumRiskPersonalCanaryPath = join(redactionCanariesDir, "medium-risk-personal.jsonl");
 
 function assert(condition, message) {
   if (!condition) {
@@ -27,6 +30,17 @@ function runCli(args, options = {}) {
 
 function sha256Hex(contents) {
   return `sha256:${createHash("sha256").update(contents).digest("hex")}`;
+}
+
+async function readJsonlFixture(fixturePath) {
+  const text = await readFile(fixturePath, "utf8");
+  const records = text
+    .split(/\r?\n/)
+    .filter((line) => line.trim().length > 0)
+    .map((line) => JSON.parse(line));
+
+  assert(records.length > 0, `${fixturePath} must contain at least one JSONL record`);
+  return records;
 }
 
 async function main() {
@@ -415,10 +429,10 @@ async function main() {
   const claudeScan = runCli(["scan", claudePackageDir]);
   assert(claudeScan.status === 0, "scan should accept normalized Claude Code hook events");
 
-  const fakeSecret = "sk-abcdefghijklmnopqrstuvwxyz0123456789AB";
+  const secretCanaryRecords = await readJsonlFixture(highRiskSecretCanaryPath);
+  const fakeSecret = secretCanaryRecords[0].text;
   const secretReportPath = join(workDir, "secret-redaction-report.json");
-  await writeFile(sourcePath, `${JSON.stringify({ text: fakeSecret })}\n`);
-  const secretImport = runCli(["import", sourcePath, packageDir]);
+  const secretImport = runCli(["import", highRiskSecretCanaryPath, packageDir]);
   assert(secretImport.status === 0, "import should accept valid JSONL with high-risk text");
 
   const secretScan = runCli(["scan"], { cwd: packageDir });
@@ -459,19 +473,14 @@ async function main() {
   assert(JSON.stringify(parsedSecretReport).includes("secret.openai_api_key"), "report should include detector class");
   assert(!JSON.stringify(parsedSecretReport).includes(fakeSecret), "report must not include raw secret values");
 
-  const fakeEmail = "donor@example.com";
-  const fakeUrl = "https://example.com/private/path?case=123";
-  const fakePath = "/Users/example/private-note.txt";
-  await writeFile(
-    sourcePath,
-    `${JSON.stringify({ text: "plain first record" })}\r\n\r\n${JSON.stringify({
-      email: fakeEmail,
-      url: fakeUrl,
-      path: fakePath,
-      ip: "192.0.2.10",
-    })}\r\n`,
-  );
-  const piiImport = runCli(["import", sourcePath, packageDir]);
+  const piiCanaryRecords = await readJsonlFixture(mediumRiskPersonalCanaryPath);
+  const piiCanary = piiCanaryRecords[1];
+  assert(piiCanary, "medium-risk personal canary fixture must include a second JSONL record");
+  const fakeEmail = piiCanary.email;
+  const fakeUrl = piiCanary.url;
+  const fakePath = piiCanary.path;
+  const fakeIp = piiCanary.ip;
+  const piiImport = runCli(["import", mediumRiskPersonalCanaryPath, packageDir]);
   assert(piiImport.status === 0, "import should accept valid JSONL with personal data");
 
   const piiScan = runCli(["scan", packageDir]);
@@ -485,7 +494,7 @@ async function main() {
     assert(piiScan.stdout.includes(label), `scan should report ${label}`);
   }
   assert(piiScan.stdout.includes("line 3: personal.email"), "scan should report physical JSONL line numbers");
-  for (const rawValue of [fakeEmail, fakeUrl, fakePath, "192.0.2.10"]) {
+  for (const rawValue of [fakeEmail, fakeUrl, fakePath, fakeIp]) {
     assert(!piiScan.stdout.includes(rawValue), "scan output must not echo personal or private values");
   }
 
@@ -500,7 +509,7 @@ async function main() {
   ]) {
     assert(piiPreview.stdout.includes(label), `preview should include ${label}`);
   }
-  for (const rawValue of [fakeEmail, fakeUrl, fakePath, "192.0.2.10"]) {
+  for (const rawValue of [fakeEmail, fakeUrl, fakePath, fakeIp]) {
     assert(!piiPreview.stdout.includes(rawValue), "preview must not echo personal or private values");
   }
 
@@ -508,7 +517,7 @@ async function main() {
   assert(piiPackageValidation.status === 0, "validate-package should not fail closed on medium-risk findings");
   assert(piiPackageValidation.stdout.includes("Package validation: passed"), "medium-risk package should pass gate");
   assert(piiPackageValidation.stdout.includes("Decision: review_required"), "medium-risk package should require review");
-  for (const rawValue of [fakeEmail, fakeUrl, fakePath, "192.0.2.10"]) {
+  for (const rawValue of [fakeEmail, fakeUrl, fakePath, fakeIp]) {
     assert(!piiPackageValidation.stdout.includes(rawValue), "package validation must not echo personal values");
   }
 
@@ -530,7 +539,7 @@ async function main() {
   ]) {
     assert(JSON.stringify(parsedPiiReport).includes(label), `report should include ${label}`);
   }
-  for (const rawValue of [fakeEmail, fakeUrl, fakePath, "192.0.2.10"]) {
+  for (const rawValue of [fakeEmail, fakeUrl, fakePath, fakeIp]) {
     assert(!JSON.stringify(parsedPiiReport).includes(rawValue), "report must not include raw personal values");
   }
 

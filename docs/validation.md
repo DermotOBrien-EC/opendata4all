@@ -50,6 +50,10 @@ validation scripts use only the Node.js standard library.
   including current hashes, explicit `contains_raw_data: false`, unique event
   IDs within each JSONL file, matching adapter metadata, active consent receipts,
   and publishable redaction reports.
+- Checked-in redaction canary fixtures must keep exercising the high-risk
+  `secret.openai_api_key` detector and medium-risk email, IP address, full URL,
+  and local file path detectors while proving raw matched values are not echoed
+  in scan, preview, package validation, manifest, or report output.
 
 ## Current Template Invariants
 
@@ -64,5 +68,5 @@ validation scripts use only the Node.js standard library.
 ## Later Validation
 
 Later milestones should add full JSON Schema instance validation, broader
-example fixtures, schema migration tests, redaction canary tests, dependency
-scanning, secret scanning, and signed release checks.
+example fixtures, schema migration tests, broader redaction canary matrices,
+dependency scanning, secret scanning, and signed release checks.
