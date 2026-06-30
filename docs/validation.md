@@ -15,8 +15,8 @@ example packages are internally consistent, that the local CLI commands keep
 working against checked-in adapter fixtures and disposable packages, that
 repository text files do not contain unallowlisted live-looking credentials, and
 that repository package and CI policy still enforce private, dependency-free
-validation. It also checks that controlled-access policy templates keep required
-donor-protection guardrails.
+validation. It also checks that controlled-access policy and data-use agreement
+templates keep required donor-protection guardrails.
 
 The CI workflow runs the same command on pull requests and pushes to `main`.
 The workflow does not require dependency installation because the CLI and
