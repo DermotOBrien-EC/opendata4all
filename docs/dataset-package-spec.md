@@ -31,13 +31,22 @@ Raw data is not included in publishable packages by default.
 
 `od4a redact <source-package-dir> <output-package-dir>` creates a new local
 package with redacted canonical JSONL and does not mutate the source package. It
-refuses non-empty output directories, removes or replaces raw text-like fields
-and tool command strings, writes a redaction report, marks redacted records as
-not raw-data-capable, and fails closed if high-risk deterministic findings
-remain in the output. The result is still a local package; public release needs
-separate manifest, consent, validation, and publication gates. Event-level
-`risk` blocks remain pre-redaction provenance; the redaction report and output
-scan are the post-redaction deterministic risk evidence.
+refuses non-empty output directories and builds a new allowlisted projection:
+direct IDs are salted and hashed, infrastructure IDs are dropped, and event
+`data` is rebuilt from derived facts only. Raw content in `data`, `extensions`,
+unknown keys, prompts, messages, tool commands, and tool outputs is dropped
+instead of masked. Free-token envelope strings do not survive: source
+harness/adapter names, actor roles, consent scopes, and risk labels must match
+known OD4A vocabularies; consent receipt IDs are salted and hashed; source
+harness kind/version, adapter version, consent policy version, and input
+`redactions[]` annotations are dropped. A separate verifier must accept each
+projected record before the record is marked `public_safe_redacted` and
+`raw_data_capable: false`; out-of-range numeric channels such as very large
+`sequence` values suppress the record.
+Records that cannot be verified are suppressed and itemized in the redaction
+report; the command exits with status `3` when suppression occurs. The result is
+still a local package; public release needs separate manifest, consent,
+validation, and publication gates.
 
 `od4a manifest` can generate a local-review `metadata/manifest.json` with
 checksums, byte counts, row counts, adapter metadata, and validation status. It
@@ -56,7 +65,8 @@ front matter and copies the manifest, listed JSONL data files, consent receipts,
 and redaction reports. The command fails closed for local-review packages, raw
 files, files that omit an explicit `contains_raw_data: false`, failed
 validation, stale file checksums, non-active consent, or non-publishable
-redaction reports. It is not an upload or publication command.
+redaction reports. Redaction reports must also declare `review_required: false`
+and no suppressed records. It is not an upload or publication command.
 
 `od4a publish-hf` uses the same public-safe gates, then publishes the generated
 Hugging Face dataset layout to a public dataset repository only when the user

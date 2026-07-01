@@ -63,23 +63,31 @@ local validation, packaging, consent, risk review, and first adapter surfaces.
 - `export` copies the canonical JSONL file back out to stdout or a local file.
 - `redact` creates a new local package from a source package without mutating
   the source. It refuses non-empty output directories, writes a fresh package
-  scaffold, reads `data/jsonl/events.jsonl`, removes or replaces raw message
-  text, prompt-like fields, tool command strings, and deterministic risk
-  matches, sets redacted records to `public_safe_redacted`, marks them as
-  `raw_data_capable: false`, writes `reports/redaction-report.json`, and rescans
-  the output. It exits with status `2` if high-risk deterministic findings
-  remain. Existing event-level `risk` blocks are preserved as pre-redaction
-  provenance; use the redaction report and output scan for post-redaction
-  deterministic findings. Command output, reports, and generated metadata
-  contain detector classes, hashes, counts, and decisions, not raw matched
-  values.
+  scaffold, reads `data/jsonl/events.jsonl`, and emits an allowlisted projection
+  only: a hashed structural envelope plus derived facts such as part counts,
+  per-part character/word counts, text-presence booleans, allowlisted tool
+  names, and command-presence booleans. Raw `data` and `extensions` content is
+  dropped, never masked. Direct IDs such as event, conversation, turn, and actor
+  pseudonymous IDs are salted per run; consent receipt IDs are salted the same
+  way. Source harness/adapter names, actor roles, consent scopes, and risk
+  labels must be known OD4A vocabulary values or the record is suppressed.
+  Source harness kind/version, adapter version, and consent policy version are
+  dropped. Input `redactions[]` annotations are also dropped instead of copied,
+  because they can contain free-form donor or detector strings. The salt is not
+  written to the output package. Each projected record is independently verified before
+  `content_release_level: public_safe_redacted` and `raw_data_capable: false`
+  are set; unbounded numeric channels such as very large `sequence` values are
+  suppressed. Records that cannot be verified are suppressed, itemized in
+  `reports/redaction-report.json`, and cause exit status `3`. Command output,
+  reports, and generated metadata contain hashes, counts, decisions, and
+  suppression reason codes, not raw matched values.
 - `manifest` writes `metadata/manifest.json` for local review. It computes
   file checksums, byte counts, JSONL row counts, source adapter metadata when
   present in OD4A events, consent and redaction report references, and local
   validation status. Generated manifests default to `local_review`, mark raw
-  imported canonical JSONL as containing raw data, and mark `od4a redact`
-  outputs as `contains_raw_data: false` when every record declares
-  `raw_data_capable: false`. They are not publication approval.
+  imported canonical JSONL as containing raw data, and mark verified
+  `od4a redact` outputs as `contains_raw_data: false` when every retained record
+  declares `raw_data_capable: false`. They are not publication approval.
 - `dataset-card` writes `metadata/dataset-card.md` from the package manifest.
   It summarizes package metadata, file checksums, source adapters, consent and
   redaction references, license/access terms, and safety notes without rendering
@@ -89,14 +97,16 @@ local validation, packaging, consent, risk review, and first adapter surfaces.
   generated root `README.md`, the manifest, listed JSONL data files, consent
   receipts, and redaction reports. It refuses non-public, local-review,
   raw-data, omitted-raw-flag, stale-checksum, failed-validation,
-  non-active-consent, and non-publishable-redaction packages. Every copied file
+  non-active-consent, non-publishable-redaction packages, and redaction reports
+  that still require review or contain suppressed records. Every copied file
   must declare `contains_raw_data: false`. It does not upload, publish, or
   contact Hugging Face.
 - `publish-hf` publishes a public Hugging Face dataset through an explicit user
   action. It uses the same fail-closed package gates as `hf-sample`, requires a
   `public_release` package, active consent, publishable redaction reports,
-  current checksums, and `contains_raw_data: false` for every copied file. Use
-  `--dry-run` to verify readiness without network access. Real uploads require
+  `review_required: false`, no suppressed records, current checksums, and
+  `contains_raw_data: false` for every copied file. Use `--dry-run` to verify
+  readiness without network access. Real uploads require
   `--yes` plus `HF_TOKEN` or `HUGGINGFACE_TOKEN` in the environment; the token is
   never written into the package, and upload Git commands disable configured
   credential helpers so the token is not persisted by Git. The command creates or opens

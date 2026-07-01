@@ -95,6 +95,13 @@ od4a validate
 od4a inspect examples/minimal-package
 ```
 
+`od4a redact` is a local-only allowlist projector. It writes a new package,
+drops raw data and extensions, hashes direct IDs including consent receipt IDs,
+keeps only known envelope vocabularies plus derived data facts, drops input
+redaction annotations, and suppresses records that cannot be independently
+verified as public-safe. Public Hugging Face sample/publish gates also reject
+redaction reports that still require review or contain suppressed records.
+
 ## License
 
 Code is licensed under Apache-2.0. Dataset releases, examples, schemas, docs,

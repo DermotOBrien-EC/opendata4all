@@ -55,6 +55,10 @@
           "type": "integer",
           "minimum": 0
         },
+        "suppressed_records": {
+          "type": "integer",
+          "minimum": 0
+        },
         "review_required": {
           "type": "boolean",
           "default": false
@@ -98,6 +102,25 @@
     },
     "decision": {
       "enum": ["publishable", "controlled_only", "review_required", "blocked"]
+    },
+    "suppressions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["event_id", "reason"],
+        "properties": {
+          "event_id": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "vector": {
+            "type": "string"
+          }
+        }
+      }
     },
     "notes": {
       "type": "string"

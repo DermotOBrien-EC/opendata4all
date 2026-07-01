@@ -41,7 +41,7 @@
     "source": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["harness", "adapter_name", "adapter_version"],
+      "required": ["harness", "adapter_name"],
       "properties": {
         "harness": {
           "type": "string",
@@ -174,7 +174,7 @@
     "provenance": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["raw_source_hash", "trust_level"],
+      "required": ["trust_level"],
       "properties": {
         "raw_source_hash": {
           "type": ["string", "null"]
@@ -190,6 +190,40 @@
     "data": {
       "type": "object",
       "properties": {
+        "part_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "parts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["type", "char_count", "word_count", "has_text"],
+            "properties": {
+              "type": {
+                "enum": ["text", "tool_call", "tool_result", "image", "audio", "file", "json", "other"]
+              },
+              "char_count": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "word_count": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "has_text": {
+                "type": "boolean"
+              },
+              "tool_name": {
+                "enum": ["apply_patch", "bash", "git", "node", "npm", "python", "python3", "shell"]
+              }
+            }
+          }
+        },
+        "command_present": {
+          "type": "boolean"
+        },
         "content_release_level": {
           "enum": [
             "raw_local_review",
@@ -197,11 +231,11 @@
             "public_safe_redacted",
             "controlled_research_summary"
           ],
-          "description": "Release-readiness marker for event content. `public_safe_redacted` is produced by od4a redact for records whose raw text/tool command fields were removed or replaced."
+          "description": "Release-readiness marker for event content. `public_safe_redacted` is produced by od4a redact for allowlisted derived records whose raw content was dropped."
         },
         "raw_data_capable": {
           "type": "boolean",
-          "description": "False when the event data is not intended to carry raw transcript text or tool command strings."
+          "description": "False only after the redacted projection verifier has accepted the record as derived-data-only."
         }
       },
       "additionalProperties": true

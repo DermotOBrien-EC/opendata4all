@@ -42,11 +42,11 @@ validation scripts use only the Node.js standard library.
   current supported `schema_version` value, `0.1.0`.
 - Local Hugging Face sample generation and public Hugging Face publishing must
   fail closed unless the package is a public release with passed validation,
-  active consent, publishable redaction reports, current checksums, and
-  `contains_raw_data: false` declared for every copied file. Public publishing
-  additionally requires an explicit `--yes` plus a token supplied through the
-  environment; dry-runs must perform the same package gates without network
-  access.
+  active consent, publishable redaction reports, `review_required: false`, no
+  suppressed records, current checksums, and `contains_raw_data: false` declared
+  for every copied file. Public publishing additionally requires an explicit
+  `--yes` plus a token supplied through the environment; dry-runs must perform
+  the same package gates without network access.
 - Local derived table generation must preserve canonical event row counts while
   excluding raw message text and tool command strings from table and sidecar
   output.
@@ -54,10 +54,14 @@ validation scripts use only the Node.js standard library.
   and describe derived metric columns such as text counts and tool-command
   presence without storing raw values.
 - Local redaction must refuse non-empty output directories, leave the source
-  package unchanged, remove raw text/tool command strings and deterministic risk
-  matches from output JSONL, write only raw-value-free reports and command
-  output, mark redacted JSONL as non-raw-capable for later manifests, and fail
-  closed if high-risk deterministic findings remain.
+  package unchanged, drop raw content through an allowlisted projection rather
+  than masking it, salt-hash direct IDs and consent receipt IDs, constrain
+  retained envelope strings to known vocabularies, drop source version/kind and
+  consent policy version strings, drop input `redactions[]` annotations, bound
+  retained numeric channels such as `sequence`, emit derived data facts only,
+  write only raw-value-free reports and command output, mark retained JSONL
+  records as non-raw-capable only after an independent verifier accepts them,
+  and exit with status `3` when records are suppressed.
 - OpenAI API app-log, Codex hook, and Claude Code hook adapter imports must keep
   passing against checked-in synthetic JSONL fixtures, including privacy canaries
   that prove private transcript paths, environment values, working directories,

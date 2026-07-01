@@ -100,6 +100,23 @@ function assertNoRawValues(text, rawValues, message) {
   }
 }
 
+async function readCliEventTypeRegistry() {
+  const cliSource = await readFile(cliPath, "utf8");
+  const registryMatch = cliSource.match(/const eventTypeRegistry = Object\.freeze\(\{([\s\S]*?)\}\);/);
+  assert(registryMatch, "CLI should expose a named eventTypeRegistry");
+  const values = [...registryMatch[1].matchAll(/:\s*"([^"]+)"/g)].map((match) => match[1]);
+  assert(values.length > 0, "eventTypeRegistry should contain at least one event type");
+  return new Set(values);
+}
+
+function assertEventTypesRegistered(name, events, registeredEventTypes) {
+  const emittedTypes = new Set(events.map((event) => event.event_type).filter((value) => typeof value === "string"));
+  assert(emittedTypes.size > 0, `${name} should emit event_type values`);
+  for (const eventType of emittedTypes) {
+    assert(registeredEventTypes.has(eventType), `${name} event_type ${eventType} should be registered`);
+  }
+}
+
 async function assertHighRiskRedactionCanary({ canary, packageDir, reportPath }) {
   const records = await readJsonlFixture(canary.path);
   const rawValues = records.flatMap((record) => stringValues(record));
@@ -160,6 +177,51 @@ async function assertHighRiskRedactionCanary({ canary, packageDir, reportPath })
   assertNoRawValues(JSON.stringify(parsedReport), rawValues, `${canary.name} report must not include raw values`);
 }
 
+async function assertRedactProjectsPackage({ name, packageDir, outputDir }) {
+  const sourceEvents = await readJsonlFixture(join(packageDir, "data", "jsonl", "events.jsonl"));
+  const rawPartTextValues = sourceEvents.flatMap((event) =>
+    Array.isArray(event?.data?.parts)
+      ? event.data.parts
+          .map((part) => (typeof part?.text === "string" ? part.text : ""))
+          .filter((text) => text.length > 0)
+      : [],
+  );
+
+  assert(rawPartTextValues.length > 0, `${name} should include raw part text in the source fixture`);
+
+  const redact = runCli(["redact", packageDir, outputDir]);
+  assert(redact.status === 0, `${name} redact should project known-vocabulary records without suppression`);
+  assert(redact.stdout.includes("Records suppressed: 0"), `${name} redact should report zero suppressions`);
+  assertNoRawValues(redact.stdout, rawPartTextValues, `${name} redact output must not echo raw source text`);
+
+  const outputText = await readFile(join(outputDir, "data", "jsonl", "events.jsonl"), "utf8");
+  assertNoRawValues(outputText, rawPartTextValues, `${name} redacted JSONL must not include raw source text`);
+  const outputEvents = outputText
+    .trim()
+    .split("\n")
+    .filter((line) => line.length > 0)
+    .map((line) => JSON.parse(line));
+  assert(outputEvents.length > 0, `${name} redact should project at least one record`);
+  assert(outputEvents.length === sourceEvents.length, `${name} redact should project every known-vocabulary record`);
+  assert(
+    outputEvents.every((event) => event.data?.raw_data_capable === false && event.data?.content_release_level === "public_safe_redacted"),
+    `${name} redacted records should be verified public-safe projections`,
+  );
+  assert(
+    outputEvents.every((event) =>
+      Array.isArray(event.data?.parts) &&
+      event.data.parts.every((part) => !("text" in part) && Number.isInteger(part.char_count) && Number.isInteger(part.word_count)),
+    ),
+    `${name} redacted parts should contain derived counts but no raw text`,
+  );
+
+  const reportText = await readFile(join(outputDir, "reports", "redaction-report.json"), "utf8");
+  assertNoRawValues(reportText, rawPartTextValues, `${name} redaction report must not include raw source text`);
+  const report = JSON.parse(reportText);
+  assert(report.summary?.suppressed_records === 0, `${name} redaction report should have zero suppressions`);
+  assert(report.summary?.review_required === false, `${name} redaction report should not require review`);
+}
+
 async function main() {
   const workDir = await mkdtemp(join(tmpdir(), "od4a-cli-"));
   const packageDir = join(workDir, "package");
@@ -169,6 +231,8 @@ async function main() {
   const blockedHfSampleDir = join(workDir, "blocked-hf-sample");
   const missingRawFlagPackageDir = join(workDir, "missing-raw-flag-package");
   const missingRawFlagHfSampleDir = join(workDir, "missing-raw-flag-hf-sample");
+  const reviewRequiredReportPackageDir = join(workDir, "review-required-report-package");
+  const reviewRequiredReportHfSampleDir = join(workDir, "review-required-report-hf-sample");
   const malformedPublishPackageDir = join(workDir, "malformed-publish-package");
   const codexPackageDir = join(workDir, "codex-package");
   const codexDerivedTablesDir = join(workDir, "codex-derived-tables");
@@ -176,9 +240,14 @@ async function main() {
   const redactSourcePackageDir = join(workDir, "redact-source-package");
   const redactOutputDir = join(workDir, "redact-output-package");
   const redactNonEmptyOutputDir = join(workDir, "redact-non-empty-output");
+  const redactCleanPackageDir = join(workDir, "redact-clean-package");
+  const redactCleanOutputDir = join(workDir, "redact-clean-output-package");
+  const redactMinimalExampleOutputDir = join(workDir, "redact-minimal-example-output");
+  const redactPublicSafeExampleOutputDir = join(workDir, "redact-public-safe-example-output");
   const sourcePath = join(workDir, "records.jsonl");
   const exportPath = join(workDir, "exported.jsonl");
   const jsonl = '{"id":1}\r\n\r\n{"id":2}\r\n';
+  const registeredEventTypes = await readCliEventTypeRegistry();
 
   const help = runCli(["help"]);
   assert(help.status === 0, "help command should succeed");
@@ -231,6 +300,19 @@ async function main() {
     validateTemplates.stdout.includes("Validated 2 controlled-access/data-use templates."),
     "validate-templates should run controlled-access/data-use template checks",
   );
+
+  for (const exampleName of [
+    "minimal-package",
+    "public-safe-conversation-package",
+    "controlled-research-package",
+    "reproducibility-snapshot-package",
+  ]) {
+    assertEventTypesRegistered(
+      `${exampleName} example package`,
+      await readJsonlFixture(join(root, "examples", exampleName, "data", "jsonl", "events.jsonl")),
+      registeredEventTypes,
+    );
+  }
 
   const validate = runCli(["validate"]);
   assert(validate.status === 0, "validate command should succeed");
@@ -302,6 +384,7 @@ async function main() {
     .split("\n")
     .map((line) => JSON.parse(line));
   assert(openAiEvents.length === 6, "import-openai-api should normalize input and output messages");
+  assertEventTypesRegistered("OpenAI API importer", openAiEvents, registeredEventTypes);
   assert(
     new Set(openAiEvents.map((event) => event.event_id)).size === openAiEvents.length,
     "duplicate OpenAI API log records should still produce unique event IDs",
@@ -565,6 +648,42 @@ async function main() {
     "hf-sample should require explicit contains_raw_data false for copied files",
   );
 
+  await mkdir(join(reviewRequiredReportPackageDir, "data", "jsonl"), { recursive: true });
+  await mkdir(join(reviewRequiredReportPackageDir, "metadata"), { recursive: true });
+  await mkdir(join(reviewRequiredReportPackageDir, "receipts"), { recursive: true });
+  await mkdir(join(reviewRequiredReportPackageDir, "reports"), { recursive: true });
+  await copyFile(
+    join(root, "examples", "minimal-package", "data", "jsonl", "events.jsonl"),
+    join(reviewRequiredReportPackageDir, "data", "jsonl", "events.jsonl"),
+  );
+  await copyFile(
+    join(root, "examples", "minimal-package", "metadata", "manifest.json"),
+    join(reviewRequiredReportPackageDir, "metadata", "manifest.json"),
+  );
+  await copyFile(
+    join(root, "examples", "minimal-package", "receipts", "consent-001.json"),
+    join(reviewRequiredReportPackageDir, "receipts", "consent-001.json"),
+  );
+  const reviewRequiredReport = JSON.parse(
+    await readFile(join(root, "examples", "minimal-package", "reports", "redaction-report.json"), "utf8"),
+  );
+  reviewRequiredReport.summary.review_required = true;
+  reviewRequiredReport.summary.suppressed_records = 1;
+  await writeFile(
+    join(reviewRequiredReportPackageDir, "reports", "redaction-report.json"),
+    `${JSON.stringify(reviewRequiredReport, null, 2)}\n`,
+  );
+  const reviewRequiredHfSample = runCli(["hf-sample", reviewRequiredReportPackageDir, reviewRequiredReportHfSampleDir]);
+  assert(reviewRequiredHfSample.status === 1, "hf-sample should reject review-required redaction reports");
+  assert(
+    reviewRequiredHfSample.stdout.includes("redaction_report_review_required:reports/redaction-report.json"),
+    "hf-sample should require redaction reports with review_required false",
+  );
+  assert(
+    reviewRequiredHfSample.stdout.includes("redaction_report_suppressed_records:reports/redaction-report.json"),
+    "hf-sample should reject redaction reports with suppressed records",
+  );
+
   const privateTranscriptPath = "/Users/example/.codex/private/transcript.jsonl";
   const privateEnvValue = "synthetic-openai-env-canary";
   const codexImport = runCli(["import-codex-hook", codexHookFixturePath, codexPackageDir]);
@@ -575,6 +694,7 @@ async function main() {
     .split("\n")
     .map((line) => JSON.parse(line));
   assert(codexEvents.length === 3, "import-codex-hook should normalize message and tool hook records");
+  assertEventTypesRegistered("Codex hook importer", codexEvents, registeredEventTypes);
   assert(
     new Set(codexEvents.map((event) => event.event_id)).size === codexEvents.length,
     "duplicate Codex hook records should still produce unique event IDs",
@@ -627,6 +747,7 @@ async function main() {
     .split("\n")
     .map((line) => JSON.parse(line));
   assert(claudeEvents.length === 3, "import-claude-code-hook should normalize message and tool hook records");
+  assertEventTypesRegistered("Claude Code hook importer", claudeEvents, registeredEventTypes);
   assert(
     new Set(claudeEvents.map((event) => event.event_id)).size === claudeEvents.length,
     "duplicate Claude Code hook records should still produce unique event IDs",
@@ -656,8 +777,6 @@ async function main() {
   const claudeScan = runCli(["scan", claudePackageDir]);
   assert(claudeScan.status === 0, "scan should accept normalized Claude Code hook events");
 
-  const redactInit = runCli(["init", redactSourcePackageDir]);
-  assert(redactInit.status === 0, "redact source package init should succeed");
   const redactRawSecret = ["sk", "synthetic", "redact", "canary", "0000000000000000000000000000"].join("-");
   const redactRawPrompt = `Prompt text carrying a redaction canary ${redactRawSecret}.`;
   const redactRawToolCommand = [
@@ -667,117 +786,307 @@ async function main() {
     `"Authorization: Bearer ${redactRawSecret}"`,
   ].join(" ");
   const redactRawEmail = "synthetic.redact@example.invalid";
+  const redactRawUnicodeEmail = "synthetic.red\u0430ct@example.invalid";
   const redactRawPath = "/Users/example/redact-canary-note.txt";
   const redactRawIp = "192.0.2.44";
   const redactRawStandaloneText = "Standalone raw text canary that should not survive redaction.";
+  const redactRawObjectKey = "synthetic.raw.key@example.invalid";
+  const redactRawNote = "Raw note sentinel outside the allowlist.";
+  const redactRawBlob = "Raw blob sentinel outside the allowlist.";
+  const redactRawAuthor = "Raw author sentinel outside the allowlist.";
+  const redactRawBodyMarkdown = "Raw body markdown sentinel outside the allowlist.";
+  const redactRawArrayString = "Raw array string sentinel outside the allowlist.";
+  const redactRawNestedNote = "Raw nested note sentinel outside the allowlist.";
+  const redactRawPayloadCommand = "cat /Users/example/private/redact-secret.txt";
+  const redactRawBase64 = "c3ludGhldGljLXJlZGFjdC1zZWNyZXQtY2FuYXJ5";
+  const redactRawHex = "73796e746865746963726564616374736563726574";
+  const redactRawSplitA = "sk-synthetic-redact-split-";
+  const redactRawSplitB = "0000000000000000000000000000";
+  const redactRawPhoneNumber = "15555550123";
+  const redactRawLatitude = "37.774929";
+  const redactRawLongitude = "-122.419416";
+  const redactRawMetadata = "Raw provenance metadata sentinel.";
+  const redactRawMultiline = "Raw multiline sentinel line one\nline two";
+  const redactRawZeroWidth = "raw-zero\u200bwidth-sentinel";
+  const redactRawEnvelopeEncoded = "73796e746865746963726564616374656e76656c6f7065";
+  const redactRawActorRole = "johnsmith1985";
+  const redactRawConsentScope = "patient-mrn-4471902";
+  const redactRawClientToken = "acme-clientname";
+  const redactRawUnknownHarness = "unknown-harness";
+  const redactRawRedactionClass = "johnsmith-ssn-123456";
+  const redactRawRedactionDetector = "patient-mrn-99887";
   const redactRawValues = [
     redactRawSecret,
     redactRawPrompt,
     redactRawToolCommand,
     redactRawEmail,
+    redactRawUnicodeEmail,
     redactRawPath,
     redactRawIp,
     redactRawStandaloneText,
+    redactRawObjectKey,
+    redactRawNote,
+    redactRawBlob,
+    redactRawAuthor,
+    redactRawBodyMarkdown,
+    redactRawArrayString,
+    redactRawNestedNote,
+    redactRawPayloadCommand,
+    redactRawBase64,
+    redactRawHex,
+    redactRawSplitA,
+    redactRawSplitB,
+    redactRawPhoneNumber,
+    redactRawLatitude,
+    redactRawLongitude,
+    redactRawMetadata,
+    redactRawMultiline,
+    redactRawZeroWidth,
+    redactRawEnvelopeEncoded,
+    redactRawActorRole,
+    redactRawConsentScope,
+    redactRawClientToken,
+    redactRawUnknownHarness,
+    redactRawRedactionClass,
+    redactRawRedactionDetector,
   ];
-  const redactSourceEvents = [
-    {
-      schema_version: "0.1.0",
-      event_id: "evt_redact_message_001",
-      event_type: "org.opendata4all.message.created",
-      event_time: "2026-07-01T00:00:00Z",
-      source: {
-        harness: "manual_fixture",
-        harness_kind: "synthetic_redaction_test",
-        adapter_name: "od4a-cli-redact-test",
-        adapter_version: "0.1.0",
-        capture_method: "manual_import",
-      },
-      conversation_id: "conv_redact_001",
-      turn_id: "turn_redact_001",
-      sequence: 0,
-      actor: {
-        type: "user",
-        role: "user",
-        pseudonymous_id: "synthetic_redact_user",
-      },
-      consent: {
-        status: "unknown",
-        scope: ["local_preview"],
-        receipt_id: "pending",
-      },
-      risk: {
-        severity: "high",
-        labels: ["secret.openai_api_key"],
-        score: 100,
-      },
-      redactions: [],
-      provenance: {
-        raw_source_hash: `sha256:${"1".repeat(64)}`,
-        normalization_run_id: "run_redact_cli_check",
-        trust_level: "user_supplied",
-      },
+  const redactBaseEvent = ({ eventId, sequence, source = {}, actor = {}, consent = {}, risk = {}, provenance = {}, data = {}, extra = {} }) => ({
+    schema_version: "0.1.0",
+    event_id: eventId,
+    event_type: "org.opendata4all.message.created",
+    event_time: "2026-07-01T00:00:00Z",
+    source: {
+      harness: "manual_fixture",
+      harness_kind: "synthetic_redaction_test",
+      adapter_name: "od4a-cli-redact-test",
+      adapter_version: "0.1.0",
+      capture_method: "manual_import",
+      ...source,
+    },
+    conversation_id: "conv_allowlist_shared",
+    turn_id: `turn_allowlist_${sequence}`,
+    sequence,
+    actor: {
+      type: "user",
+      role: "user",
+      pseudonymous_id: "synthetic_redact_user",
+      ...actor,
+    },
+    consent: {
+      status: "unknown",
+      scope: ["local_preview"],
+      receipt_id: "pending",
+      policy_version: "example-notice-0.1.0",
+      ...consent,
+    },
+    risk: {
+      severity: "none",
+      labels: [],
+      score: 0,
+      ...risk,
+    },
+    redactions: [],
+    provenance: {
+      raw_source_hash: `sha256:${String(sequence + 1).repeat(64).slice(0, 64)}`,
+      normalization_run_id: "run_redact_cli_check",
+      trust_level: "user_supplied",
+      ...provenance,
+    },
+    data: {
+      kind: "message",
+      content_release_level: "raw_local_review",
+      ...data,
+    },
+    ...extra,
+  });
+  const redactCleanEvent = redactBaseEvent({
+    eventId: "evt_allowlist_clean_001",
+    sequence: 0,
+    extra: {
+      redactions: [
+        {
+          target: "/data/parts/0/text",
+          class: redactRawRedactionClass,
+          action: "mask",
+          detector: redactRawRedactionDetector,
+        },
+      ],
+    },
+    data: {
+      parts: [
+        {
+          type: "text",
+          text: redactRawPrompt,
+        },
+      ],
+    },
+  });
+  const redactHostileDroppedEvent = redactBaseEvent({
+    eventId: "evt_allowlist_hostile_dropped_001",
+    sequence: 1,
+    data: {
+      [redactRawObjectKey]: "raw key value is dropped with the data object",
+      note: redactRawNote,
+      blob: redactRawBlob,
+      author: redactRawAuthor,
+      body_markdown: redactRawBodyMarkdown,
+      array_values: [redactRawArrayString],
       data: {
-        kind: "message",
-        message_id: "msg_redact_001",
-        role: "user",
-        parts: [
-          {
-            type: "text",
-            text: redactRawPrompt,
+        note: redactRawNestedNote,
+      },
+      payload: {
+        command: {
+          value: redactRawPayloadCommand,
+        },
+      },
+      encoded_base64: redactRawBase64,
+      encoded_hex: redactRawHex,
+      split_a: redactRawSplitA,
+      split_b: redactRawSplitB,
+      unicode_email: redactRawUnicodeEmail,
+      phone_number: Number(redactRawPhoneNumber),
+      latitude: Number(redactRawLatitude),
+      longitude: Number(redactRawLongitude),
+      multiline: redactRawMultiline,
+      zero_width: redactRawZeroWidth,
+      parts: [
+        {
+          type: "tool_call",
+          text: redactRawStandaloneText,
+          tool_name: "shell",
+          args: {
+            path: redactRawPath,
+            ip: redactRawIp,
           },
-        ],
-        content_release_level: "raw_local_review",
+        },
+      ],
+      command: redactRawToolCommand,
+    },
+    provenance: {
+      metadata_note: redactRawMetadata,
+    },
+    extra: {
+      trace: {
+        trace_id: "trace-raw-infra-id",
+      },
+      extensions: {
+        raw_note: redactRawMetadata,
       },
     },
-    {
-      schema_version: "0.1.0",
-      event_id: "evt_redact_tool_001",
-      event_type: "org.opendata4all.tool.invoked",
-      event_time: "2026-07-01T00:00:05Z",
-      source: {
-        harness: "manual_fixture",
-        harness_kind: "synthetic_redaction_test",
-        adapter_name: "od4a-cli-redact-test",
-        adapter_version: "0.1.0",
-        capture_method: "manual_import",
-      },
-      conversation_id: "conv_redact_001",
-      turn_id: "turn_redact_001",
-      sequence: 1,
-      actor: {
-        type: "tool",
-        role: "tool",
-      },
-      consent: {
-        status: "unknown",
-        scope: ["local_preview"],
-        receipt_id: "pending",
-      },
-      risk: {
-        severity: "medium",
-        labels: ["private.full_url"],
-        score: 50,
-      },
-      redactions: [],
-      provenance: {
-        raw_source_hash: `sha256:${"2".repeat(64)}`,
-        normalization_run_id: "run_redact_cli_check",
-        trust_level: "user_supplied",
-      },
-      data: {
-        kind: "tool_event",
-        tool_name: "shell",
-        command: redactRawToolCommand,
-        content_release_level: "raw_local_review",
-      },
+  });
+  const redactEnvelopeSecretEvent = redactBaseEvent({
+    eventId: "evt_allowlist_envelope_secret_001",
+    sequence: 2,
+    source: {
+      adapter_name: redactRawSecret,
     },
-    {
-      text: redactRawStandaloneText,
-      email: redactRawEmail,
-      path: redactRawPath,
-      ip: redactRawIp,
+  });
+  const redactEnvelopeEncodedEvent = redactBaseEvent({
+    eventId: "evt_allowlist_envelope_encoded_001",
+    sequence: 3,
+    source: {
+      adapter_name: redactRawEnvelopeEncoded,
     },
+  });
+  const redactActorRoleTokenEvent = redactBaseEvent({
+    eventId: "evt_allowlist_actor_role_token_001",
+    sequence: 4,
+    actor: {
+      role: redactRawActorRole,
+    },
+  });
+  const redactConsentScopeTokenEvent = redactBaseEvent({
+    eventId: "evt_allowlist_consent_scope_token_001",
+    sequence: 5,
+    consent: {
+      scope: ["local_preview", redactRawConsentScope],
+    },
+  });
+  const redactClientTokenEvent = redactBaseEvent({
+    eventId: "evt_allowlist_client_token_001",
+    sequence: 6,
+    source: {
+      adapter_name: redactRawClientToken,
+    },
+    consent: {
+      receipt_id: redactRawClientToken,
+    },
+  });
+  const redactUnknownHarnessEvent = redactBaseEvent({
+    eventId: "evt_allowlist_unknown_harness_001",
+    sequence: 7,
+    source: {
+      harness: redactRawUnknownHarness,
+    },
+  });
+  const redactHugeSequenceEvent = redactBaseEvent({
+    eventId: "evt_allowlist_huge_sequence_001",
+    sequence: Number(redactRawPhoneNumber),
+  });
+  const redactLooseTimestampEvent = {
+    ...redactBaseEvent({
+      eventId: "evt_allowlist_loose_timestamp_001",
+      sequence: 8,
+    }),
+    event_time: "2024",
+  };
+  const redactSourceEvents = [
+    redactCleanEvent,
+    redactHostileDroppedEvent,
+    redactEnvelopeSecretEvent,
+    redactEnvelopeEncodedEvent,
+    redactActorRoleTokenEvent,
+    redactConsentScopeTokenEvent,
+    redactClientTokenEvent,
+    redactUnknownHarnessEvent,
+    redactHugeSequenceEvent,
+    redactLooseTimestampEvent,
   ];
+
+  const redactCleanInit = runCli(["init", redactCleanPackageDir]);
+  assert(redactCleanInit.status === 0, "clean redact package init should succeed");
+  await writeFile(
+    join(redactCleanPackageDir, "data", "jsonl", "events.jsonl"),
+    `${JSON.stringify(redactCleanEvent)}\n`,
+  );
+  const redactClean = runCli(["redact", redactCleanPackageDir, redactCleanOutputDir]);
+  assert(redactClean.status === 0, "redact should exit 0 when no records are suppressed");
+  assert(redactClean.stdout.includes("Records suppressed: 0"), "clean redact should report zero suppressions");
+  assertNoRawValues(redactClean.stdout, redactRawValues, "clean redact command output must not echo raw values");
+  const redactCleanText = await readFile(join(redactCleanOutputDir, "data", "jsonl", "events.jsonl"), "utf8");
+  assertNoRawValues(redactCleanText, redactRawValues, "clean redacted JSONL must not include raw canary values");
+  const redactCleanRows = redactCleanText
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line));
+  assert(redactCleanRows.length === 1, "clean redact should keep the clean structural control record");
+  assert(/^sha256:[a-f0-9]{64}$/.test(redactCleanRows[0].event_id), "redact should salt-hash event_id");
+  assert(/^sha256:[a-f0-9]{64}$/.test(redactCleanRows[0].conversation_id), "redact should salt-hash conversation_id");
+  assert(/^sha256:[a-f0-9]{64}$/.test(redactCleanRows[0].turn_id), "redact should salt-hash turn_id");
+  assert(
+    /^sha256:[a-f0-9]{64}$/.test(redactCleanRows[0].actor.pseudonymous_id),
+    "redact should salt-hash actor pseudonymous IDs",
+  );
+  assert(/^sha256:[a-f0-9]{64}$/.test(redactCleanRows[0].consent.receipt_id), "redact should salt-hash consent receipt IDs");
+  assert(redactCleanRows[0].event_id !== redactCleanEvent.event_id, "hashed event_id must not equal raw event_id");
+  assert(redactCleanRows[0].consent.receipt_id !== redactCleanEvent.consent.receipt_id, "hashed receipt IDs must not equal raw IDs");
+  assert(redactCleanRows[0].data.raw_data_capable === false, "verified clean records should be marked non-raw-capable");
+  assert(
+    redactCleanRows[0].data.content_release_level === "public_safe_redacted",
+    "verified clean records should be marked public safe",
+  );
+  assert(redactCleanRows[0].data.part_count === 1, "redact should include derived part counts");
+  assert(redactCleanRows[0].data.parts[0].char_count === Array.from(redactRawPrompt).length, "redact should derive char counts");
+  assert(redactCleanRows[0].data.parts[0].word_count === redactRawPrompt.trim().split(/\s+/u).length, "redact should derive word counts");
+  assert(redactCleanRows[0].data.parts[0].has_text === true, "redact should derive text presence");
+  assert(!("text" in redactCleanRows[0].data.parts[0]), "redact must not keep raw text in derived parts");
+  assert(
+    Array.isArray(redactCleanRows[0].redactions) && redactCleanRows[0].redactions.length === 0,
+    "redact should drop input redaction annotations instead of copying free strings",
+  );
+
+  const redactInit = runCli(["init", redactSourcePackageDir]);
+  assert(redactInit.status === 0, "redact source package init should succeed");
   const redactSourceJsonl = `${redactSourceEvents.map((event) => JSON.stringify(event)).join("\n")}\n`;
   await writeFile(join(redactSourcePackageDir, "data", "jsonl", "events.jsonl"), redactSourceJsonl);
 
@@ -791,10 +1100,13 @@ async function main() {
   );
 
   const redactOutput = runCli(["redact", redactSourcePackageDir, redactOutputDir]);
-  assert(redactOutput.status === 0, "redact should write public-safe output JSONL");
+  assert(redactOutput.status === 3, "redact should use the distinct suppression exit code when records are suppressed");
+  assert(redactOutput.stdout.includes("Records read: 10"), "redact should summarize source record count");
+  assert(redactOutput.stdout.includes("Records projected: 2"), "redact should keep safe projected records");
+  assert(redactOutput.stdout.includes("Records suppressed: 8"), "redact should summarize suppressions");
   assert(
-    redactOutput.stdout.includes("Raw text/command fields redacted"),
-    "redact should summarize deterministic raw-field redaction",
+    redactOutput.stdout.includes("Raw content handling: dropped by allowlist projection"),
+    "redact should summarize allowlist dropping",
   );
   assertNoRawValues(redactOutput.stdout, redactRawValues, "redact command output must not echo raw values");
   assert(
@@ -808,32 +1120,79 @@ async function main() {
     .trim()
     .split("\n")
     .map((line) => JSON.parse(line));
-  assert(redactedRecords.length === redactSourceEvents.length, "redact should preserve JSONL record count");
-  assert(redactedRecords[0].event_id === "evt_redact_message_001", "redact should preserve event IDs");
-  assert(redactedRecords[0].event_time === "2026-07-01T00:00:00Z", "redact should preserve event timestamps");
-  assert(redactedRecords[0].source.adapter_name === "od4a-cli-redact-test", "redact should preserve source metadata");
-  assert(redactedRecords[0].actor.type === "user", "redact should preserve actor metadata");
-  assert(redactedRecords[0].consent.status === "unknown", "redact should preserve consent metadata");
-  assert(redactedRecords[0].risk.severity === "high", "redact should preserve risk metadata");
+  assert(redactedRecords.length === 2, "redact should suppress unsafe envelope records and keep safe projections");
   assert(
-    redactedRecords[0].data.content_release_level === "public_safe_redacted",
-    "redact should mark OD4A event data public-safe",
+    redactedRecords.every((record) => record.data.content_release_level === "public_safe_redacted"),
+    "redact should mark only verified records public-safe",
   );
-  assert(redactedRecords[0].data.raw_data_capable === false, "redact should mark OD4A event data non-raw-capable");
-  assert(redactedRecords[0].data.parts[0].text_redacted === true, "redact should annotate redacted text parts");
-  assert(!("command" in redactedRecords[1].data), "redact should remove tool command strings");
-  assert(redactedRecords[1].data.command_redacted === true, "redact should preserve command presence as metadata");
   assert(
-    redactedRecords[2].content_release_level === "public_safe_redacted" &&
-      redactedRecords[2].raw_data_capable === false,
-    "redact should mark generic records non-raw-capable",
+    redactedRecords.every((record) => record.data.raw_data_capable === false),
+    "redact should mark only verified records non-raw-capable",
   );
+  assert(
+    redactedRecords.every((record) => Array.isArray(record.redactions) && record.redactions.length === 0),
+    "redact should drop all input redaction annotations from retained records",
+  );
+  assert(redactedRecords[0].conversation_id === redactedRecords[1].conversation_id, "same-run salt hashes should preserve within-dataset linkage");
+  assert(redactedRecords[0].conversation_id !== "conv_allowlist_shared", "salted hashes must not expose raw conversation IDs");
+  assert(redactedRecords[1].data.command_present === true, "redact should derive command presence without command strings");
+  assert(redactedRecords[1].data.parts[0].tool_name === "shell", "redact should keep allowlisted tool names as derived part metadata");
+  assert(redactedRecords.every((record) => /^sha256:[a-f0-9]{64}$/.test(record.consent.receipt_id)), "redact should hash every retained consent receipt ID");
+  assert(!("trace" in redactedRecords[1]), "redact should drop trace infrastructure IDs");
+  assert(!("extensions" in redactedRecords[1]), "redact should drop extensions");
+  assert(
+    redactedRecords.every((record) => !("harness_kind" in record.source) && !("harness_version" in record.source)),
+    "redact should drop source harness kind and version fields",
+  );
+  assert(
+    redactedRecords.every((record) => !("adapter_version" in record.source)),
+    "redact should drop source adapter version fields",
+  );
+  assert(
+    redactedRecords.every((record) => !("policy_version" in record.consent)),
+    "redact should drop consent policy version fields",
+  );
+  assert(!("raw_source_hash" in redactedRecords[1].provenance), "redact should drop raw source hashes");
+  assert(!("normalization_run_id" in redactedRecords[1].provenance), "redact should drop normalization run IDs");
+  assert(!("kind" in redactedRecords[1].data), "redact data should contain derived facts only");
 
-  const redactReport = JSON.parse(await readFile(join(redactOutputDir, "reports", "redaction-report.json"), "utf8"));
-  assert(redactReport.decision === "publishable", "redact report should be publishable after deterministic risks are removed");
+  const redactReportText = await readFile(join(redactOutputDir, "reports", "redaction-report.json"), "utf8");
+  assertNoRawValues(redactReportText, redactRawValues, "redact report must not include raw values");
+  const redactReport = JSON.parse(redactReportText);
+  assert(redactReport.decision === "publishable", "redact report should describe the safe projected output as publishable");
   assert(redactReport.output_hash === sha256Hex(redactOutputText), "redact report output hash should match JSONL");
-  assert(redactReport.summary.redacted_findings > 0, "redact report should count redacted fields");
-  assertNoRawValues(JSON.stringify(redactReport), redactRawValues, "redact report must not include raw values");
+  assert(redactReport.summary.redacted_findings === 0, "allowlist redact should never claim masking redactions");
+  assert(redactReport.summary.suppressed_records === 8, "redact report should count suppressed records");
+  assert(redactReport.summary.review_required === true, "suppressed records should force review in redact reports");
+  assert(redactReport.suppressions.length === 8, "redact report should itemize suppressed records");
+  assert(
+    redactReport.suppressions.every((suppression) => /^sha256:[a-f0-9]{64}$/.test(suppression.event_id)),
+    "suppression entries should use hashed event IDs",
+  );
+  assert(
+    redactReport.suppressions.some((suppression) => suppression.vector.includes("enum_invalid:source.adapter_name")),
+    "redact should suppress unknown source adapter names",
+  );
+  assert(
+    redactReport.suppressions.some((suppression) => suppression.vector.includes("enum_invalid:actor.role")),
+    "redact should suppress unknown actor roles",
+  );
+  assert(
+    redactReport.suppressions.some((suppression) => suppression.vector.includes("enum_invalid:consent.scope.1")),
+    "redact should suppress unknown consent scopes",
+  );
+  assert(
+    redactReport.suppressions.some((suppression) => suppression.vector.includes("enum_invalid:source.harness")),
+    "redact should suppress unknown source harnesses",
+  );
+  assert(
+    redactReport.suppressions.some((suppression) => suppression.vector.includes("number_invalid:sequence")),
+    "redact should suppress records with out-of-bounds sequence values",
+  );
+  assert(
+    redactReport.suppressions.some((suppression) => suppression.vector.includes("timestamp_invalid:event_time")),
+    "redact should suppress Date.parse-truthy non-strict event_time strings",
+  );
 
   const redactScan = runCli(["scan", redactOutputDir]);
   assert(redactScan.status === 0, "scan should pass redacted output");
@@ -845,10 +1204,22 @@ async function main() {
 
   const redactManifest = runCli(["manifest", redactOutputDir]);
   assert(redactManifest.status === 0, "manifest should accept redacted output");
-  const parsedRedactManifest = JSON.parse(await readFile(join(redactOutputDir, "metadata", "manifest.json"), "utf8"));
+  const redactManifestText = await readFile(join(redactOutputDir, "metadata", "manifest.json"), "utf8");
+  assertNoRawValues(redactManifestText, redactRawValues, "redacted manifest must not include raw values");
+  const parsedRedactManifest = JSON.parse(redactManifestText);
   const redactedManifestFile = parsedRedactManifest.files.find((file) => file.path === "data/jsonl/events.jsonl");
-  assert(redactedManifestFile.contains_raw_data === false, "manifest should mark redacted JSONL as non-raw");
-  assertNoRawValues(JSON.stringify(parsedRedactManifest), redactRawValues, "redacted manifest must not include raw values");
+  assert(redactedManifestFile.contains_raw_data === false, "manifest should mark verified redacted JSONL as non-raw");
+
+  await assertRedactProjectsPackage({
+    name: "minimal example package",
+    packageDir: join(root, "examples", "minimal-package"),
+    outputDir: redactMinimalExampleOutputDir,
+  });
+  await assertRedactProjectsPackage({
+    name: "public-safe conversation example package",
+    packageDir: join(root, "examples", "public-safe-conversation-package"),
+    outputDir: redactPublicSafeExampleOutputDir,
+  });
 
   for (const canary of highRiskRedactionCanaries) {
     await assertHighRiskRedactionCanary({

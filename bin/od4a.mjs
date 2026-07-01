@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { chmod, copyFile, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
@@ -10,6 +10,10 @@ const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, "..");
 const args = process.argv.slice(2);
 const command = args[0] ?? "help";
+const eventTypeRegistry = Object.freeze({
+  messageCreated: "org.opendata4all.message.created",
+  toolInvoked: "org.opendata4all.tool.invoked",
+});
 
 function runNodeScript(scriptPath) {
   const result = spawnSync(process.execPath, [scriptPath], {
@@ -271,7 +275,7 @@ function buildOpenAiEvent({ record, message, messageIndex, lineNumber, rawLineHa
   return {
     schema_version: "0.1.0",
     event_id: `openai-api-${eventHash.slice(0, 24)}`,
-    event_type: "org.opendata4all.message.created",
+    event_type: eventTypeRegistry.messageCreated,
     event_time: eventTimeForOpenAiRecord(record),
     source: {
       harness: "openai-api-app",
@@ -417,7 +421,7 @@ function codexMessageFromRecord(record) {
     kind: "message",
     actorType: actorTypeForOpenAiRole(role),
     role,
-    eventType: "org.opendata4all.message.created",
+    eventType: eventTypeRegistry.messageCreated,
     data: {
       kind: "message",
       hook_event_name: codexHookName(record),
@@ -446,7 +450,7 @@ function codexToolFromRecord(record) {
     kind: "tool",
     actorType: "tool",
     role: "tool",
-    eventType: "org.opendata4all.tool.invoked",
+    eventType: eventTypeRegistry.toolInvoked,
     data: {
       kind: "tool_event",
       hook_event_name: codexHookName(record),
@@ -605,7 +609,7 @@ function claudeMessageFromRecord(record) {
   return {
     actorType: actorTypeForOpenAiRole(role),
     role,
-    eventType: "org.opendata4all.message.created",
+    eventType: eventTypeRegistry.messageCreated,
     data: {
       kind: "message",
       hook_event_name: claudeHookName(record),
@@ -636,7 +640,7 @@ function claudeToolFromRecord(record) {
   return {
     actorType: "tool",
     role: "tool",
-    eventType: "org.opendata4all.tool.invoked",
+    eventType: eventTypeRegistry.toolInvoked,
     data: {
       kind: "tool_event",
       hook_event_name: claudeHookName(record),
@@ -1250,6 +1254,12 @@ async function validateHfSamplePackage(packageRoot, manifest, manifestHash) {
       }
       if (report.summary?.blocked_findings !== 0) {
         issues.push(`redaction_report_blocked_findings:${reportPath}`);
+      }
+      if (report.summary?.review_required !== false) {
+        issues.push(`redaction_report_review_required:${reportPath}`);
+      }
+      if ((report.summary?.suppressed_records ?? 0) !== 0) {
+        issues.push(`redaction_report_suppressed_records:${reportPath}`);
       }
       if (!fileHashes.has(report.output_hash)) {
         issues.push(`redaction_report_output_hash_mismatch:${reportPath}`);
@@ -2134,223 +2144,678 @@ async function validatePackage(packageDir) {
   }
 }
 
-const redactionOmitValue = Symbol("od4a.redaction.omit");
-const redactedTextPlaceholder = "[REDACTED: public-safe text removed]";
-const redactedRiskPlaceholder = "[REDACTED: deterministic risk match removed]";
 const publicSafeRedactionPolicyVersion = "od4a-public-safe-redaction-0.1.0";
-const rawTextFieldNames = new Set([
-  "completion",
-  "content",
-  "input",
-  "input_text",
-  "message",
-  "output",
-  "output_text",
-  "prompt",
-  "response",
-  "text",
+const redactionSuppressionExitCode = 3;
+const publicSafeRedactedLevel = "public_safe_redacted";
+const hashedIdPattern = /^sha256:[a-f0-9]{64}$/;
+const strictIsoTimestampPattern =
+  /^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]+)?(?:Z|[+-][0-9]{2}:[0-9]{2})$/;
+const safeTokenPattern = /^[A-Za-z0-9._:-]{1,120}$/;
+const eventTypePattern = /^org\.opendata4all\.[a-z0-9_]+\.[a-z0-9_.]+$/;
+const jsonPointerPattern = /^(?:|(?:\/[A-Za-z0-9._:-]+|\/[0-9]+)+)$/;
+const eventTypeValues = new Set(Object.values(eventTypeRegistry));
+const maxPublicSafeSequence = 1_000_000;
+const sourceHarnessValues = new Set(["openai-api-app", "codex", "claude-code", "manual_fixture"]);
+const sourceAdapterNameValues = new Set([
+  "od4a-openai-api-app-log",
+  "od4a-codex-hook",
+  "od4a-claude-code-hook",
+  "od4a-manual-jsonl",
+  "od4a-manual-jsonl-example",
+  "od4a-public-safe-conversation-example",
+  "od4a-controlled-research-example",
+  "od4a-reproducibility-snapshot-example",
+  "od4a-cli-redact-test",
 ]);
-const rawCommandFieldNames = new Set(["command", "command_text"]);
+const captureMethodValues = new Set([
+  "native_api",
+  "documented_hook",
+  "structured_cli",
+  "user_export",
+  "manual_import",
+  "mcp_proxy",
+  "other_documented",
+]);
+const actorTypeValues = new Set(["user", "assistant", "tool", "system", "reviewer", "adapter"]);
+const actorRoleValues = new Set(["user", "assistant", "tool", "system", "developer", "reviewer", "adapter"]);
+const consentStatusValues = new Set(["granted", "withheld", "revoked", "not_required", "unknown"]);
+const consentScopeValues = new Set([
+  "local_preview",
+  "local_review",
+  "public_release",
+  "controlled_research",
+  "reproducibility_snapshot",
+  "synthetic_fixture",
+]);
+const riskSeverityValues = new Set(["none", "low", "medium", "high", "blocked"]);
+const riskLabelValues = new Set(["synthetic_fixture", ...riskDetectors.map((detector) => detector.label)]);
+const trustLevelValues = new Set(["native", "documented", "user_supplied", "derived", "unknown"]);
+const redactionActionValues = new Set([
+  "remove",
+  "mask",
+  "generalize",
+  "replace_surrogate",
+  "suppress_record",
+  "withhold",
+  "hmac_internal",
+]);
+const partTypeValues = new Set(["text", "tool_call", "tool_result", "image", "audio", "file", "json", "other"]);
+const safeToolNameValues = new Set([
+  "apply_patch",
+  "bash",
+  "git",
+  "node",
+  "npm",
+  "python",
+  "python3",
+  "shell",
+]);
 
-function jsonPointer(path) {
-  if (path.length === 0) {
-    return "";
-  }
+const confusableCharacters = new Map(
+  Object.entries({
+    "\u0391": "A",
+    "\u0392": "B",
+    "\u0395": "E",
+    "\u0397": "H",
+    "\u0399": "I",
+    "\u039a": "K",
+    "\u039c": "M",
+    "\u039d": "N",
+    "\u039f": "O",
+    "\u03a1": "P",
+    "\u03a4": "T",
+    "\u03a7": "X",
+    "\u03b1": "a",
+    "\u03b5": "e",
+    "\u03bf": "o",
+    "\u03c1": "p",
+    "\u03c5": "u",
+    "\u0445": "x",
+    "\u0410": "A",
+    "\u0412": "B",
+    "\u0415": "E",
+    "\u041a": "K",
+    "\u041c": "M",
+    "\u041d": "H",
+    "\u041e": "O",
+    "\u0420": "P",
+    "\u0421": "C",
+    "\u0422": "T",
+    "\u0425": "X",
+    "\u0430": "a",
+    "\u0435": "e",
+    "\u043e": "o",
+    "\u0440": "p",
+    "\u0441": "c",
+    "\u0443": "y",
+  }),
+);
 
-  return `/${path
-    .map((part) =>
-      String(part)
-        .replace(/~/g, "~0")
-        .replace(/\//g, "~1"),
-    )
-    .join("/")}`;
+function normalizeForVerification(value) {
+  return String(value)
+    .normalize("NFKC")
+    .replace(/[\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufeff]/g, "")
+    .replace(/[\u0391-\u03c9\u0410-\u044f]/g, (character) => confusableCharacters.get(character) ?? character);
 }
 
-function pathLastName(path) {
-  if (path.length === 0) {
-    return "";
-  }
+function detectorLabelsForText(text) {
+  const normalized = normalizeForVerification(text);
+  const labels = new Set();
 
-  return String(path[path.length - 1]);
-}
-
-function isRawTextPath(path) {
-  return rawTextFieldNames.has(pathLastName(path));
-}
-
-function isRawCommandPath(path) {
-  return rawCommandFieldNames.has(pathLastName(path));
-}
-
-function matchingRiskDetectors(text) {
-  return riskDetectors.filter((detector) => detector.pattern.test(text));
-}
-
-function createRedactionStats() {
-  return {
-    redactedFields: 0,
-    findings: new Map(),
-  };
-}
-
-function confidenceBucketForClass(className) {
-  const detector = riskDetectors.find((candidate) => candidate.label === className);
-  if (!detector) {
-    return "manual";
-  }
-  return detector.severity === "high" ? "high" : "medium";
-}
-
-function noteReportFinding(stats, className, action) {
-  const key = `${className}:${action}`;
-  const current = stats.findings.get(key) ?? {
-    class: className,
-    action,
-    count: 0,
-    ...(riskDetectors.some((detector) => detector.label === className)
-      ? { detector: "od4a.deterministic-patterns" }
-      : {}),
-    confidence_bucket: confidenceBucketForClass(className),
-  };
-  current.count += 1;
-  stats.findings.set(key, current);
-}
-
-function redactionClasses(primaryClass, detectors) {
-  const classes = new Map([[primaryClass, primaryClass]]);
-  for (const detector of detectors) {
-    classes.set(detector.label, detector.label);
-  }
-  return [...classes.values()];
-}
-
-function noteRedaction(stats, annotations, path, primaryClass, action, detectors) {
-  const classes = redactionClasses(primaryClass, detectors);
-  stats.redactedFields += 1;
-
-  for (const className of classes) {
-    noteReportFinding(stats, className, action);
-    annotations.push({
-      target: jsonPointer(path),
-      class: className,
-      action,
-      ...(riskDetectors.some((detector) => detector.label === className)
-        ? { detector: "od4a.deterministic-patterns" }
-        : {}),
-      confidence: confidenceBucketForClass(className) === "high" ? 0.95 : 0.8,
-      reversible: false,
-    });
-  }
-}
-
-function redactJsonValue(value, path, stats, annotations) {
-  if (typeof value === "string") {
-    const detectors = matchingRiskDetectors(value);
-
-    if (isRawCommandPath(path)) {
-      noteRedaction(stats, annotations, path, "tool.command", "remove", detectors);
-      return redactionOmitValue;
-    }
-
-    if (isRawTextPath(path)) {
-      noteRedaction(stats, annotations, path, "text.content", "mask", detectors);
-      return redactedTextPlaceholder;
-    }
-
-    if (detectors.length > 0) {
-      noteRedaction(stats, annotations, path, detectors[0].label, "mask", detectors);
-      return redactedRiskPlaceholder;
-    }
-
-    return value;
-  }
-
-  if (Array.isArray(value)) {
-    const redactedItems = [];
-    for (const [index, item] of value.entries()) {
-      const redactedItem = redactJsonValue(item, [...path, index], stats, annotations);
-      if (redactedItem !== redactionOmitValue) {
-        redactedItems.push(redactedItem);
+  for (const candidate of [text, normalized]) {
+    for (const detector of riskDetectors) {
+      if (detector.pattern.test(candidate)) {
+        labels.add(detector.label);
       }
     }
-    return redactedItems;
   }
 
-  if (value && typeof value === "object") {
-    const redactedObject = {};
-    for (const [key, item] of Object.entries(value)) {
-      const redactedItem = redactJsonValue(item, [...path, key], stats, annotations);
-      if (redactedItem !== redactionOmitValue) {
-        redactedObject[key] = redactedItem;
-      }
-    }
-    return redactedObject;
+  return [...labels].sort();
+}
+
+function looksEncodedPayload(value) {
+  if (typeof value !== "string" || value.length < 32 || value.startsWith("sha256:")) {
+    return false;
   }
 
-  return value;
+  return /^[0-9a-fA-F]{32,}$/.test(value) || /^[A-Za-z0-9+/_-]{32,}={0,2}$/.test(value);
+}
+
+function saltedHash(value, salt) {
+  return sha256Hex(`${salt}\0${String(value)}`);
 }
 
 function isObject(value) {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
-function markRedactedTextParts(sourceEvent, redactedEvent) {
-  if (!Array.isArray(sourceEvent?.data?.parts) || !Array.isArray(redactedEvent?.data?.parts)) {
+function copyStringField(source, key, target) {
+  if (typeof source?.[key] === "string") {
+    target[key] = source[key];
+  }
+}
+
+function copyNumberField(source, key, target) {
+  if (typeof source?.[key] === "number" && Number.isFinite(source[key])) {
+    target[key] = source[key];
+  }
+}
+
+function copyIntegerField(source, key, target) {
+  if (Number.isInteger(source?.[key])) {
+    target[key] = source[key];
+  }
+}
+
+function copyBooleanField(source, key, target) {
+  if (typeof source?.[key] === "boolean") {
+    target[key] = source[key];
+  }
+}
+
+function copyStringArrayField(source, key, target) {
+  if (Array.isArray(source?.[key])) {
+    target[key] = source[key].filter((value) => typeof value === "string");
+  }
+}
+
+function sourcePartText(part) {
+  if (typeof part === "string") {
+    return part;
+  }
+
+  if (isObject(part) && typeof part.text === "string") {
+    return part.text;
+  }
+
+  return "";
+}
+
+function wordCount(text) {
+  const trimmed = text.trim();
+  return trimmed.length === 0 ? 0 : trimmed.split(/\s+/u).length;
+}
+
+function hasCommandField(value) {
+  if (Array.isArray(value)) {
+    return value.some((item) => hasCommandField(item));
+  }
+
+  if (!isObject(value)) {
+    return false;
+  }
+
+  return Object.entries(value).some(([key, item]) => key === "command" || key === "command_text" || hasCommandField(item));
+}
+
+function projectPart(part) {
+  const text = sourcePartText(part);
+  const projected = {
+    type: isObject(part) && partTypeValues.has(part.type) ? part.type : "other",
+    char_count: Array.from(text).length,
+    word_count: wordCount(text),
+    has_text: text.length > 0,
+  };
+
+  if (isObject(part) && safeToolNameValues.has(part.tool_name)) {
+    projected.tool_name = part.tool_name;
+  }
+
+  return projected;
+}
+
+function projectData(data) {
+  const sourceParts = Array.isArray(data?.parts) ? data.parts : [];
+
+  return {
+    part_count: sourceParts.length,
+    parts: sourceParts.map((part) => projectPart(part)),
+    command_present: hasCommandField(data),
+  };
+}
+
+function projectEventEnvelope(event, salt) {
+  const projected = {};
+
+  copyStringField(event, "schema_version", projected);
+  copyStringField(event, "event_type", projected);
+  copyStringField(event, "event_time", projected);
+  copyStringField(event, "observed_time", projected);
+  copyIntegerField(event, "sequence", projected);
+
+  if (typeof event.event_id === "string" && event.event_id.length > 0) {
+    projected.event_id = saltedHash(event.event_id, salt);
+  }
+  if (typeof event.conversation_id === "string" && event.conversation_id.length > 0) {
+    projected.conversation_id = saltedHash(event.conversation_id, salt);
+  }
+  if (typeof event.turn_id === "string" && event.turn_id.length > 0) {
+    projected.turn_id = saltedHash(event.turn_id, salt);
+  }
+
+  if (isObject(event.source)) {
+    projected.source = {};
+    for (const key of ["harness", "adapter_name", "capture_method"]) {
+      copyStringField(event.source, key, projected.source);
+    }
+  }
+
+  if (isObject(event.actor)) {
+    projected.actor = {};
+    copyStringField(event.actor, "type", projected.actor);
+    copyStringField(event.actor, "role", projected.actor);
+    if (typeof event.actor.pseudonymous_id === "string" && event.actor.pseudonymous_id.length > 0) {
+      projected.actor.pseudonymous_id = saltedHash(event.actor.pseudonymous_id, salt);
+    }
+  }
+
+  if (isObject(event.consent)) {
+    projected.consent = {};
+    copyStringField(event.consent, "status", projected.consent);
+    copyStringArrayField(event.consent, "scope", projected.consent);
+    if (typeof event.consent.receipt_id === "string" && event.consent.receipt_id.length > 0) {
+      projected.consent.receipt_id = saltedHash(event.consent.receipt_id, salt);
+    }
+  }
+
+  if (isObject(event.risk)) {
+    projected.risk = {};
+    copyStringField(event.risk, "severity", projected.risk);
+    copyStringArrayField(event.risk, "labels", projected.risk);
+    copyNumberField(event.risk, "score", projected.risk);
+  }
+
+  if (isObject(event.provenance)) {
+    projected.provenance = {};
+    copyStringField(event.provenance, "trust_level", projected.provenance);
+  }
+
+  projected.redactions = [];
+  projected.data = projectData(event.data);
+
+  return projected;
+}
+
+function suppressionEventId(event, salt, index) {
+  if (isObject(event) && typeof event.event_id === "string" && event.event_id.length > 0) {
+    return saltedHash(event.event_id, salt);
+  }
+
+  return saltedHash(`record:${index + 1}`, salt);
+}
+
+function pushVerifyIssue(issues, issue) {
+  if (!issues.includes(issue)) {
+    issues.push(issue);
+  }
+}
+
+function verifyNoDetectorHits(value, path, issues) {
+  const labels = detectorLabelsForText(value);
+  for (const label of labels) {
+    pushVerifyIssue(issues, `detector_hit:${path}:${label}`);
+  }
+}
+
+function verifyCanonicalString(value, path, issues) {
+  if (value !== normalizeForVerification(value)) {
+    pushVerifyIssue(issues, `string_not_canonical:${path}`);
+  }
+  if (/[\u0000-\u001f\u007f]/.test(value)) {
+    pushVerifyIssue(issues, `string_control_character:${path}`);
+  }
+  verifyNoDetectorHits(value, path, issues);
+}
+
+function verifyCanonicalEnumString(value, path, issues) {
+  if (value !== normalizeForVerification(value)) {
+    pushVerifyIssue(issues, `string_not_canonical:${path}`);
+  }
+  if (/[\u0000-\u001f\u007f]/.test(value)) {
+    pushVerifyIssue(issues, `string_control_character:${path}`);
+  }
+}
+
+function verifyObjectKeys(object, path, allowedKeys, issues) {
+  if (!isObject(object)) {
+    pushVerifyIssue(issues, `object_required:${path}`);
     return;
   }
 
-  for (const [index, sourcePart] of sourceEvent.data.parts.entries()) {
-    if (typeof sourcePart?.text === "string" && isObject(redactedEvent.data.parts[index])) {
-      redactedEvent.data.parts[index].text_redacted = true;
+  for (const key of Object.keys(object)) {
+    verifyCanonicalString(key, `${path || "record"}.<key>`, issues);
+    if (!allowedKeys.has(key)) {
+      pushVerifyIssue(issues, `unknown_key:${path || "record"}.${key}`);
     }
   }
 }
 
-function redactEventRecord(event, stats) {
-  const annotations = [];
-  const redactedEvent = redactJsonValue(event, [], stats, annotations);
+function requireFields(object, path, fields, issues) {
+  for (const field of fields) {
+    if (!(field in object)) {
+      pushVerifyIssue(issues, `missing_required:${path}.${field}`);
+    }
+  }
+}
 
-  if (!isObject(redactedEvent)) {
-    return redactedEvent;
+function verifyToken(value, path, issues) {
+  if (typeof value !== "string" || !safeTokenPattern.test(value)) {
+    pushVerifyIssue(issues, `safe_token_required:${path}`);
+    return;
+  }
+  verifyCanonicalString(value, path, issues);
+  if (looksEncodedPayload(value)) {
+    pushVerifyIssue(issues, `encoded_payload_like:${path}`);
+  }
+}
+
+function verifyEnum(value, path, allowedValues, issues) {
+  if (typeof value !== "string") {
+    pushVerifyIssue(issues, `enum_invalid:${path}`);
+    return;
+  }
+  verifyCanonicalEnumString(value, path, issues);
+  if (!allowedValues.has(value)) {
+    pushVerifyIssue(issues, `enum_invalid:${path}`);
+  }
+}
+
+function verifyHashedId(value, path, issues) {
+  if (typeof value !== "string" || !hashedIdPattern.test(value)) {
+    pushVerifyIssue(issues, `hashed_id_required:${path}`);
+    return;
+  }
+  verifyCanonicalString(value, path, issues);
+}
+
+function verifyTimestamp(value, path, issues) {
+  if (
+    typeof value !== "string" ||
+    value.length > 40 ||
+    !strictIsoTimestampPattern.test(value) ||
+    Number.isNaN(Date.parse(value))
+  ) {
+    pushVerifyIssue(issues, `timestamp_invalid:${path}`);
+    return;
+  }
+  verifyCanonicalString(value, path, issues);
+}
+
+function verifyNumber(value, path, { integer = false, min = -Infinity, max = Infinity } = {}, issues) {
+  const valid = integer ? Number.isInteger(value) : typeof value === "number" && Number.isFinite(value);
+  if (!valid || value < min || value > max) {
+    pushVerifyIssue(issues, `number_invalid:${path}`);
+  }
+}
+
+function verifyStringArray(value, path, issues) {
+  if (!Array.isArray(value)) {
+    pushVerifyIssue(issues, `array_required:${path}`);
+    return;
   }
 
-  if (isObject(redactedEvent.data)) {
-    redactedEvent.data.content_release_level = "public_safe_redacted";
-    redactedEvent.data.raw_data_capable = false;
-    if (isObject(event?.data) && typeof event.data.command === "string") {
-      redactedEvent.data.command_redacted = true;
+  for (const [index, item] of value.entries()) {
+    verifyToken(item, `${path}.${index}`, issues);
+  }
+}
+
+function verifyEnumArray(value, path, allowedValues, issues) {
+  if (!Array.isArray(value)) {
+    pushVerifyIssue(issues, `array_required:${path}`);
+    return;
+  }
+
+  for (const [index, item] of value.entries()) {
+    verifyEnum(item, `${path}.${index}`, allowedValues, issues);
+  }
+}
+
+function verifyRedactions(value, issues) {
+  if (!Array.isArray(value)) {
+    pushVerifyIssue(issues, "array_required:redactions");
+    return;
+  }
+
+  for (const [index, annotation] of value.entries()) {
+    const path = `redactions.${index}`;
+    verifyObjectKeys(
+      annotation,
+      path,
+      new Set(["target", "class", "action", "detector", "confidence", "reversible"]),
+      issues,
+    );
+    requireFields(annotation, path, ["target", "class", "action"], issues);
+    if ("target" in annotation) {
+      if (typeof annotation.target !== "string" || !jsonPointerPattern.test(annotation.target)) {
+        pushVerifyIssue(issues, `json_pointer_invalid:${path}.target`);
+      } else {
+        verifyCanonicalString(annotation.target, `${path}.target`, issues);
+      }
     }
-    markRedactedTextParts(event, redactedEvent);
+    if ("class" in annotation) {
+      verifyToken(annotation.class, `${path}.class`, issues);
+    }
+    if ("action" in annotation) {
+      verifyEnum(annotation.action, `${path}.action`, redactionActionValues, issues);
+    }
+    if ("detector" in annotation) {
+      verifyToken(annotation.detector, `${path}.detector`, issues);
+    }
+    if ("confidence" in annotation) {
+      verifyNumber(annotation.confidence, `${path}.confidence`, { min: 0, max: 1 }, issues);
+    }
+    if ("reversible" in annotation && typeof annotation.reversible !== "boolean") {
+      pushVerifyIssue(issues, `boolean_required:${path}.reversible`);
+    }
+  }
+}
+
+function verifyData(value, issues) {
+  verifyObjectKeys(value, "data", new Set(["part_count", "parts", "command_present", "content_release_level", "raw_data_capable"]), issues);
+  requireFields(value, "data", ["part_count", "parts", "command_present", "content_release_level", "raw_data_capable"], issues);
+  verifyNumber(value.part_count, "data.part_count", { integer: true, min: 0 }, issues);
+  if (!Array.isArray(value.parts)) {
+    pushVerifyIssue(issues, "array_required:data.parts");
   } else {
-    redactedEvent.content_release_level = "public_safe_redacted";
-    redactedEvent.raw_data_capable = false;
+    if (value.parts.length !== value.part_count) {
+      pushVerifyIssue(issues, "part_count_mismatch:data.parts");
+    }
+    for (const [index, part] of value.parts.entries()) {
+      const path = `data.parts.${index}`;
+      verifyObjectKeys(part, path, new Set(["type", "char_count", "word_count", "has_text", "tool_name"]), issues);
+      requireFields(part, path, ["type", "char_count", "word_count", "has_text"], issues);
+      verifyEnum(part.type, `${path}.type`, partTypeValues, issues);
+      verifyNumber(part.char_count, `${path}.char_count`, { integer: true, min: 0 }, issues);
+      verifyNumber(part.word_count, `${path}.word_count`, { integer: true, min: 0 }, issues);
+      if (typeof part.has_text !== "boolean") {
+        pushVerifyIssue(issues, `boolean_required:${path}.has_text`);
+      }
+      if ("tool_name" in part) {
+        verifyEnum(part.tool_name, `${path}.tool_name`, safeToolNameValues, issues);
+      }
+    }
   }
-
-  if (isObject(redactedEvent.provenance) && "raw_source_hash" in redactedEvent.provenance) {
-    redactedEvent.provenance.raw_source_hash = null;
+  if (typeof value.command_present !== "boolean") {
+    pushVerifyIssue(issues, "boolean_required:data.command_present");
   }
-
-  redactedEvent.redactions = annotations;
-  return redactedEvent;
+  if (value.content_release_level !== publicSafeRedactedLevel) {
+    pushVerifyIssue(issues, "public_safe_release_level_required:data.content_release_level");
+  }
+  if (value.raw_data_capable !== false) {
+    pushVerifyIssue(issues, "raw_data_capable_false_required:data.raw_data_capable");
+  }
 }
 
-function redactionReportDecision(outputAnalysis) {
-  const blockedFindings = outputAnalysis.findings.filter((finding) => finding.severity === "high").length;
-  const mediumFindings = outputAnalysis.findings.filter((finding) => finding.severity === "medium").length;
+function verifyProjectedRecord(record) {
+  const issues = [];
+  verifyObjectKeys(
+    record,
+    "record",
+    new Set([
+      "schema_version",
+      "event_id",
+      "event_type",
+      "event_time",
+      "observed_time",
+      "source",
+      "conversation_id",
+      "turn_id",
+      "sequence",
+      "actor",
+      "consent",
+      "risk",
+      "provenance",
+      "redactions",
+      "data",
+    ]),
+    issues,
+  );
+  requireFields(
+    record,
+    "record",
+    [
+      "schema_version",
+      "event_id",
+      "event_type",
+      "event_time",
+      "source",
+      "conversation_id",
+      "sequence",
+      "actor",
+      "consent",
+      "risk",
+      "provenance",
+      "data",
+    ],
+    issues,
+  );
 
-  if (blockedFindings > 0) {
-    return "blocked";
+  if (record.schema_version !== "0.1.0") {
+    pushVerifyIssue(issues, "schema_version_invalid");
   }
-  if (mediumFindings > 0) {
-    return "review_required";
+  verifyHashedId(record.event_id, "event_id", issues);
+  if (typeof record.event_type !== "string" || !eventTypePattern.test(record.event_type)) {
+    pushVerifyIssue(issues, "event_type_invalid");
+  } else {
+    verifyEnum(record.event_type, "event_type", eventTypeValues, issues);
   }
-  return "publishable";
+  verifyTimestamp(record.event_time, "event_time", issues);
+  if ("observed_time" in record) {
+    verifyTimestamp(record.observed_time, "observed_time", issues);
+  }
+  verifyHashedId(record.conversation_id, "conversation_id", issues);
+  if ("turn_id" in record) {
+    verifyHashedId(record.turn_id, "turn_id", issues);
+  }
+  verifyNumber(record.sequence, "sequence", { integer: true, min: 0, max: maxPublicSafeSequence }, issues);
+
+  verifyObjectKeys(
+    record.source,
+    "source",
+    new Set(["harness", "adapter_name", "capture_method"]),
+    issues,
+  );
+  requireFields(record.source ?? {}, "source", ["harness", "adapter_name"], issues);
+  if ("harness" in (record.source ?? {})) {
+    verifyEnum(record.source.harness, "source.harness", sourceHarnessValues, issues);
+  }
+  if ("adapter_name" in (record.source ?? {})) {
+    verifyEnum(record.source.adapter_name, "source.adapter_name", sourceAdapterNameValues, issues);
+  }
+  if ("capture_method" in (record.source ?? {})) {
+    verifyEnum(record.source.capture_method, "source.capture_method", captureMethodValues, issues);
+  }
+
+  verifyObjectKeys(record.actor, "actor", new Set(["type", "role", "pseudonymous_id"]), issues);
+  requireFields(record.actor ?? {}, "actor", ["type"], issues);
+  if ("type" in (record.actor ?? {})) {
+    verifyEnum(record.actor.type, "actor.type", actorTypeValues, issues);
+  }
+  if ("role" in (record.actor ?? {})) {
+    verifyEnum(record.actor.role, "actor.role", actorRoleValues, issues);
+  }
+  if ("pseudonymous_id" in (record.actor ?? {})) {
+    verifyHashedId(record.actor.pseudonymous_id, "actor.pseudonymous_id", issues);
+  }
+
+  verifyObjectKeys(record.consent, "consent", new Set(["status", "scope", "receipt_id"]), issues);
+  requireFields(record.consent ?? {}, "consent", ["status", "scope", "receipt_id"], issues);
+  if ("status" in (record.consent ?? {})) {
+    verifyEnum(record.consent.status, "consent.status", consentStatusValues, issues);
+  }
+  verifyEnumArray(record.consent?.scope, "consent.scope", consentScopeValues, issues);
+  if ("receipt_id" in (record.consent ?? {})) {
+    verifyHashedId(record.consent.receipt_id, "consent.receipt_id", issues);
+  }
+
+  verifyObjectKeys(record.risk, "risk", new Set(["severity", "labels", "score"]), issues);
+  requireFields(record.risk ?? {}, "risk", ["severity", "labels"], issues);
+  if ("severity" in (record.risk ?? {})) {
+    verifyEnum(record.risk.severity, "risk.severity", riskSeverityValues, issues);
+  }
+  verifyEnumArray(record.risk?.labels, "risk.labels", riskLabelValues, issues);
+  if ("score" in (record.risk ?? {})) {
+    verifyNumber(record.risk.score, "risk.score", { min: 0, max: 100 }, issues);
+  }
+
+  verifyObjectKeys(record.provenance, "provenance", new Set(["trust_level"]), issues);
+  requireFields(record.provenance ?? {}, "provenance", ["trust_level"], issues);
+  if ("trust_level" in (record.provenance ?? {})) {
+    verifyEnum(record.provenance.trust_level, "provenance.trust_level", trustLevelValues, issues);
+  }
+
+  verifyRedactions(record.redactions, issues);
+  verifyData(record.data, issues);
+  return issues;
 }
 
-function buildTransformRedactionReport({ inputAnalysis, outputAnalysis, stats }) {
-  const blockedFindings = outputAnalysis.findings.filter((finding) => finding.severity === "high").length;
-  const mediumFindings = outputAnalysis.findings.filter((finding) => finding.severity === "medium").length;
-  const decision = redactionReportDecision(outputAnalysis);
+function projectPublicSafeEvent(event, salt, index) {
+  if (!isObject(event)) {
+    return {
+      suppression: {
+        event_id: suppressionEventId(event, salt, index),
+        reason: "record_not_object",
+      },
+    };
+  }
+
+  const candidate = projectEventEnvelope(event, salt);
+  const flagged = {
+    ...candidate,
+    data: {
+      ...candidate.data,
+      content_release_level: publicSafeRedactedLevel,
+      raw_data_capable: false,
+    },
+  };
+  const issues = verifyProjectedRecord(flagged);
+
+  if (issues.length > 0) {
+    return {
+      suppression: {
+        event_id: suppressionEventId(event, salt, index),
+        reason: "verification_failed",
+        vector: issues.slice(0, 8).join("|"),
+      },
+    };
+  }
+
+  return { event: flagged };
+}
+
+function buildAllowlistRedactionReport({ inputAnalysis, outputText, projectedCount, suppressions }) {
+  const decision = projectedCount > 0 ? "publishable" : "blocked";
+  const findings =
+    suppressions.length > 0
+      ? [
+          {
+            class: "record.suppressed",
+            action: "suppress_record",
+            count: suppressions.length,
+            confidence_bucket: "manual",
+          },
+        ]
+      : [];
 
   return {
     schema_version: "0.1.0",
@@ -2358,17 +2823,18 @@ function buildTransformRedactionReport({ inputAnalysis, outputAnalysis, stats })
     created_at: new Date().toISOString(),
     policy_version: publicSafeRedactionPolicyVersion,
     input_hash: inputAnalysis.inputHash,
-    output_hash: outputAnalysis.outputHash,
+    output_hash: sha256Hex(Buffer.from(outputText, "utf8")),
     summary: {
-      risk_score: blockedFindings > 0 ? 100 : mediumFindings > 0 ? 50 : 0,
-      blocked_findings: blockedFindings,
-      redacted_findings: stats.redactedFields,
-      review_required: decision !== "publishable",
+      risk_score: decision === "blocked" ? 100 : suppressions.length > 0 ? 25 : 0,
+      blocked_findings: decision === "blocked" ? suppressions.length : 0,
+      redacted_findings: 0,
+      suppressed_records: suppressions.length,
+      review_required: suppressions.length > 0 || decision !== "publishable",
     },
-    findings: [...stats.findings.values()].sort((left, right) => left.class.localeCompare(right.class)),
+    findings,
+    suppressions,
     decision,
-    notes:
-      "Generated by od4a redact. Raw text, tool command strings, and deterministic risk matches are not included.",
+    notes: "Generated by od4a redact allowlist projection. Raw content is dropped; no masked donor text is included.",
   };
 }
 
@@ -2409,7 +2875,7 @@ async function writeRedactedPackageScaffold(targetRoot) {
       "# OD4A Redacted Package",
       "",
       "This package was generated locally by `od4a redact`.",
-      "The canonical JSONL has raw text and tool command strings removed or replaced.",
+      "The canonical JSONL is an allowlisted projection containing derived facts only.",
       "It is not a publication action and still requires consent, validation, and release review before sharing.",
       "",
     ].join("\n"),
@@ -2437,28 +2903,42 @@ async function redactPackage(sourceDir, outputDir) {
 
   const { events } = await readCanonicalEvents(sourceRoot);
   const inputAnalysis = await analyzePackage(sourceRoot);
-  const stats = createRedactionStats();
-  const redactedEvents = events.map((event) => redactEventRecord(event, stats));
+  const salt = randomBytes(32).toString("hex");
+  const redactedEvents = [];
+  const suppressions = [];
+
+  for (const [index, event] of events.entries()) {
+    const projected = projectPublicSafeEvent(event, salt, index);
+    if (projected.event) {
+      redactedEvents.push(projected.event);
+    } else {
+      suppressions.push(projected.suppression);
+    }
+  }
 
   await writeRedactedPackageScaffold(targetRoot);
   const targetEventsPath = resolve(targetRoot, "data", "jsonl", "events.jsonl");
-  await writeFile(targetEventsPath, `${redactedEvents.map((event) => JSON.stringify(event)).join("\n")}\n`);
+  const outputText = redactedEvents.length > 0 ? `${redactedEvents.map((event) => JSON.stringify(event)).join("\n")}\n` : "";
+  await writeFile(targetEventsPath, outputText);
 
-  const outputAnalysis = await analyzePackage(targetRoot);
-  const report = buildTransformRedactionReport({ inputAnalysis, outputAnalysis, stats });
+  const report = buildAllowlistRedactionReport({
+    inputAnalysis,
+    outputText,
+    projectedCount: redactedEvents.length,
+    suppressions,
+  });
   const reportPath = resolve(targetRoot, "reports", "redaction-report.json");
   await writeFile(reportPath, `${JSON.stringify(report, null, 2)}\n`);
 
   console.log(`Wrote redacted package to ${targetRoot}`);
-  console.log(`Records: ${redactedEvents.length}`);
-  console.log(`Redacted fields: ${stats.redactedFields}`);
-  console.log(`Remaining findings: ${outputAnalysis.findings.length}`);
+  console.log(`Records read: ${events.length}`);
+  console.log(`Records projected: ${redactedEvents.length}`);
+  console.log(`Records suppressed: ${suppressions.length}`);
   console.log(`Decision: ${report.decision}`);
-  console.log("Raw text/command fields redacted (deterministic; not an anonymity guarantee)");
+  console.log("Raw content handling: dropped by allowlist projection");
 
-  if (report.decision === "blocked") {
-    console.error("Redaction output still contains high-risk deterministic findings.");
-    process.exit(2);
+  if (suppressions.length > 0) {
+    process.exit(redactionSuppressionExitCode);
   }
 }
 
