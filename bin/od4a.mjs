@@ -1936,11 +1936,28 @@ function hasNonEmptyArray(value) {
   return Array.isArray(value) && value.length > 0;
 }
 
+function isNonBlankString(value) {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+function hasOnlyNonBlankStrings(value) {
+  return Array.isArray(value) && value.every(isNonBlankString);
+}
+
 function pushIssue(issues, code) {
   if (!issues.includes(code)) {
     issues.push(code);
   }
 }
+
+const consentRecipientClasses = new Set([
+  "project_steward",
+  "data_access_committee",
+  "approved_researchers",
+  "approved_processors",
+  "public",
+  "other_named_recipients",
+]);
 
 function validateConsentTimeScope(timeScope, receipt, issues) {
   if (!timeScope || typeof timeScope !== "object") {
@@ -1999,6 +2016,8 @@ function validateConsentReceipt(receipt, expectedManifestHash) {
   } else {
     if (!hasNonEmptyArray(receipt.source_scope.sources)) {
       pushIssue(issues, "source_scope.sources_required");
+    } else if (!hasOnlyNonBlankStrings(receipt.source_scope.sources)) {
+      pushIssue(issues, "source_scope.sources_values_required");
     }
     if (!hasNonEmptyArray(receipt.source_scope.adapters)) {
       pushIssue(issues, "source_scope.adapters_required");
@@ -2010,10 +2029,18 @@ function validateConsentReceipt(receipt, expectedManifestHash) {
     validateConsentTimeScope(receipt.source_scope.time_scope, receipt, issues);
   }
 
-  for (const field of ["data_classes", "purposes", "recipient_classes"]) {
+  for (const field of ["data_classes", "purposes"]) {
     if (!hasNonEmptyArray(receipt[field])) {
       pushIssue(issues, `${field}_required`);
+    } else if (!hasOnlyNonBlankStrings(receipt[field])) {
+      pushIssue(issues, `${field}_values_required`);
     }
+  }
+
+  if (!hasNonEmptyArray(receipt.recipient_classes)) {
+    pushIssue(issues, "recipient_classes_required");
+  } else if (receipt.recipient_classes.some((recipientClass) => !consentRecipientClasses.has(recipientClass))) {
+    pushIssue(issues, "recipient_classes_invalid");
   }
 
   if (!["local_review", "controlled_research", "public_release", "reproducibility_snapshot"].includes(receipt.release_tier)) {

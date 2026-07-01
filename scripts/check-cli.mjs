@@ -772,6 +772,33 @@ async function main() {
   assert(consentValidation.status === 0, "validate-consent should pass generated draft receipts");
   assert(consentValidation.stdout.includes("Consent validation: passed"), "valid consent draft should pass");
 
+  const malformedScopeConsent = {
+    ...parsedConsentDraft,
+    source_scope: {
+      ...parsedConsentDraft.source_scope,
+      sources: [parsedConsentDraft.source_scope.sources[0], ""],
+    },
+    data_classes: [parsedConsentDraft.data_classes[0], 42],
+    purposes: [parsedConsentDraft.purposes[0], " "],
+    recipient_classes: [parsedConsentDraft.recipient_classes[0], "unsupported_recipient_class"],
+  };
+  await writeFile(
+    join(packageDir, "receipts", "malformed-scope-consent.json"),
+    `${JSON.stringify(malformedScopeConsent)}\n`,
+  );
+  const malformedScopeValidation = runCli(["validate-consent", "receipts/malformed-scope-consent.json", "."], {
+    cwd: packageDir,
+  });
+  assert(malformedScopeValidation.status === 1, "validate-consent should reject malformed scope arrays");
+  for (const issue of [
+    "source_scope.sources_values_required",
+    "data_classes_values_required",
+    "purposes_values_required",
+    "recipient_classes_invalid",
+  ]) {
+    assert(malformedScopeValidation.stdout.includes(issue), `validate-consent should report ${issue}`);
+  }
+
   const wrongHashConsent = {
     ...parsedConsentDraft,
     package_manifest_hash: `sha256:${"0".repeat(64)}`,

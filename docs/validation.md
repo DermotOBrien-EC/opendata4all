@@ -27,6 +27,8 @@ validation scripts use only the Node.js standard library.
 - Consent receipts require source adapters with names and versions.
 - Consent receipts require source, time, data-class, purpose, recipient,
   retention, withdrawal, and status fields.
+- Consent receipt source, data-class, and purpose scopes require non-empty
+  string values; recipient classes must use the supported schema vocabulary.
 - Fixed-range consent requires non-null `from` and `to`.
 - Rolling consent requires an explicit expiry or bounded range.
 - One-time consent binds to an exact package manifest hash.
