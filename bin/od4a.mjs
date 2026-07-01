@@ -895,6 +895,7 @@ async function buildPackageManifest(packageDir) {
   const blockedFindings = analysis.findings.filter((finding) => finding.severity === "high").length;
   const mediumFindings = analysis.findings.filter((finding) => finding.severity === "medium").length;
   const checkedAt = new Date().toISOString();
+  const containsRawData = events.some((event) => !declaresRawDataExcluded(event));
 
   return {
     schema_version: "0.1.0",
@@ -921,7 +922,7 @@ async function buildPackageManifest(packageDir) {
         schema_id: events.every((event) => event.schema_version === "0.1.0")
           ? "https://opendata4all.org/schemas/interaction-event.schema.json"
           : undefined,
-        contains_raw_data: true,
+        contains_raw_data: containsRawData,
       },
     ].map((file) => Object.fromEntries(Object.entries(file).filter(([, value]) => value !== undefined))),
     consent_receipts: await listPackageJsonFiles(packageRoot, "receipts"),
@@ -1949,6 +1950,13 @@ function actionForSeverity(severity) {
   return severity === "high" ? "block_export" : "withhold";
 }
 
+function declaresRawDataExcluded(event) {
+  return (
+    (event?.data?.raw_data_capable === false && event?.data?.content_release_level === "public_safe_redacted") ||
+    (event?.raw_data_capable === false && event?.content_release_level === "public_safe_redacted")
+  );
+}
+
 async function analyzePackage(packageDir) {
   const sourcePath = resolve(process.cwd(), packageDir, "data", "jsonl", "events.jsonl");
 
@@ -2122,6 +2130,334 @@ async function validatePackage(packageDir) {
   console.log(`Review required: ${report.summary.review_required ? "yes" : "no"}`);
 
   if (failed) {
+    process.exit(2);
+  }
+}
+
+const redactionOmitValue = Symbol("od4a.redaction.omit");
+const redactedTextPlaceholder = "[REDACTED: public-safe text removed]";
+const redactedRiskPlaceholder = "[REDACTED: deterministic risk match removed]";
+const publicSafeRedactionPolicyVersion = "od4a-public-safe-redaction-0.1.0";
+const rawTextFieldNames = new Set([
+  "completion",
+  "content",
+  "input",
+  "input_text",
+  "message",
+  "output",
+  "output_text",
+  "prompt",
+  "response",
+  "text",
+]);
+const rawCommandFieldNames = new Set(["command", "command_text"]);
+
+function jsonPointer(path) {
+  if (path.length === 0) {
+    return "";
+  }
+
+  return `/${path
+    .map((part) =>
+      String(part)
+        .replace(/~/g, "~0")
+        .replace(/\//g, "~1"),
+    )
+    .join("/")}`;
+}
+
+function pathLastName(path) {
+  if (path.length === 0) {
+    return "";
+  }
+
+  return String(path[path.length - 1]);
+}
+
+function isRawTextPath(path) {
+  return rawTextFieldNames.has(pathLastName(path));
+}
+
+function isRawCommandPath(path) {
+  return rawCommandFieldNames.has(pathLastName(path));
+}
+
+function matchingRiskDetectors(text) {
+  return riskDetectors.filter((detector) => detector.pattern.test(text));
+}
+
+function createRedactionStats() {
+  return {
+    redactedFields: 0,
+    findings: new Map(),
+  };
+}
+
+function confidenceBucketForClass(className) {
+  const detector = riskDetectors.find((candidate) => candidate.label === className);
+  if (!detector) {
+    return "manual";
+  }
+  return detector.severity === "high" ? "high" : "medium";
+}
+
+function noteReportFinding(stats, className, action) {
+  const key = `${className}:${action}`;
+  const current = stats.findings.get(key) ?? {
+    class: className,
+    action,
+    count: 0,
+    ...(riskDetectors.some((detector) => detector.label === className)
+      ? { detector: "od4a.deterministic-patterns" }
+      : {}),
+    confidence_bucket: confidenceBucketForClass(className),
+  };
+  current.count += 1;
+  stats.findings.set(key, current);
+}
+
+function redactionClasses(primaryClass, detectors) {
+  const classes = new Map([[primaryClass, primaryClass]]);
+  for (const detector of detectors) {
+    classes.set(detector.label, detector.label);
+  }
+  return [...classes.values()];
+}
+
+function noteRedaction(stats, annotations, path, primaryClass, action, detectors) {
+  const classes = redactionClasses(primaryClass, detectors);
+  stats.redactedFields += 1;
+
+  for (const className of classes) {
+    noteReportFinding(stats, className, action);
+    annotations.push({
+      target: jsonPointer(path),
+      class: className,
+      action,
+      ...(riskDetectors.some((detector) => detector.label === className)
+        ? { detector: "od4a.deterministic-patterns" }
+        : {}),
+      confidence: confidenceBucketForClass(className) === "high" ? 0.95 : 0.8,
+      reversible: false,
+    });
+  }
+}
+
+function redactJsonValue(value, path, stats, annotations) {
+  if (typeof value === "string") {
+    const detectors = matchingRiskDetectors(value);
+
+    if (isRawCommandPath(path)) {
+      noteRedaction(stats, annotations, path, "tool.command", "remove", detectors);
+      return redactionOmitValue;
+    }
+
+    if (isRawTextPath(path)) {
+      noteRedaction(stats, annotations, path, "text.content", "mask", detectors);
+      return redactedTextPlaceholder;
+    }
+
+    if (detectors.length > 0) {
+      noteRedaction(stats, annotations, path, detectors[0].label, "mask", detectors);
+      return redactedRiskPlaceholder;
+    }
+
+    return value;
+  }
+
+  if (Array.isArray(value)) {
+    const redactedItems = [];
+    for (const [index, item] of value.entries()) {
+      const redactedItem = redactJsonValue(item, [...path, index], stats, annotations);
+      if (redactedItem !== redactionOmitValue) {
+        redactedItems.push(redactedItem);
+      }
+    }
+    return redactedItems;
+  }
+
+  if (value && typeof value === "object") {
+    const redactedObject = {};
+    for (const [key, item] of Object.entries(value)) {
+      const redactedItem = redactJsonValue(item, [...path, key], stats, annotations);
+      if (redactedItem !== redactionOmitValue) {
+        redactedObject[key] = redactedItem;
+      }
+    }
+    return redactedObject;
+  }
+
+  return value;
+}
+
+function isObject(value) {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function markRedactedTextParts(sourceEvent, redactedEvent) {
+  if (!Array.isArray(sourceEvent?.data?.parts) || !Array.isArray(redactedEvent?.data?.parts)) {
+    return;
+  }
+
+  for (const [index, sourcePart] of sourceEvent.data.parts.entries()) {
+    if (typeof sourcePart?.text === "string" && isObject(redactedEvent.data.parts[index])) {
+      redactedEvent.data.parts[index].text_redacted = true;
+    }
+  }
+}
+
+function redactEventRecord(event, stats) {
+  const annotations = [];
+  const redactedEvent = redactJsonValue(event, [], stats, annotations);
+
+  if (!isObject(redactedEvent)) {
+    return redactedEvent;
+  }
+
+  if (isObject(redactedEvent.data)) {
+    redactedEvent.data.content_release_level = "public_safe_redacted";
+    redactedEvent.data.raw_data_capable = false;
+    if (isObject(event?.data) && typeof event.data.command === "string") {
+      redactedEvent.data.command_redacted = true;
+    }
+    markRedactedTextParts(event, redactedEvent);
+  } else {
+    redactedEvent.content_release_level = "public_safe_redacted";
+    redactedEvent.raw_data_capable = false;
+  }
+
+  if (isObject(redactedEvent.provenance) && "raw_source_hash" in redactedEvent.provenance) {
+    redactedEvent.provenance.raw_source_hash = null;
+  }
+
+  redactedEvent.redactions = annotations;
+  return redactedEvent;
+}
+
+function redactionReportDecision(outputAnalysis) {
+  const blockedFindings = outputAnalysis.findings.filter((finding) => finding.severity === "high").length;
+  const mediumFindings = outputAnalysis.findings.filter((finding) => finding.severity === "medium").length;
+
+  if (blockedFindings > 0) {
+    return "blocked";
+  }
+  if (mediumFindings > 0) {
+    return "review_required";
+  }
+  return "publishable";
+}
+
+function buildTransformRedactionReport({ inputAnalysis, outputAnalysis, stats }) {
+  const blockedFindings = outputAnalysis.findings.filter((finding) => finding.severity === "high").length;
+  const mediumFindings = outputAnalysis.findings.filter((finding) => finding.severity === "medium").length;
+  const decision = redactionReportDecision(outputAnalysis);
+
+  return {
+    schema_version: "0.1.0",
+    report_id: `redaction-${inputAnalysis.inputHash.slice("sha256:".length, "sha256:".length + 16)}`,
+    created_at: new Date().toISOString(),
+    policy_version: publicSafeRedactionPolicyVersion,
+    input_hash: inputAnalysis.inputHash,
+    output_hash: outputAnalysis.outputHash,
+    summary: {
+      risk_score: blockedFindings > 0 ? 100 : mediumFindings > 0 ? 50 : 0,
+      blocked_findings: blockedFindings,
+      redacted_findings: stats.redactedFields,
+      review_required: decision !== "publishable",
+    },
+    findings: [...stats.findings.values()].sort((left, right) => left.class.localeCompare(right.class)),
+    decision,
+    notes:
+      "Generated by od4a redact. Raw text, tool command strings, and deterministic risk matches are not included.",
+  };
+}
+
+function isSameOrNestedPath(parentPath, childPath) {
+  const relativePath = relative(parentPath, childPath);
+  return relativePath === "" || (!relativePath.startsWith("..") && !isAbsolute(relativePath));
+}
+
+async function assertEmptyOrMissingRedactionDirectory(targetRoot) {
+  try {
+    const entries = await readdir(targetRoot);
+    if (entries.length > 0) {
+      console.error(`Refusing to redact into non-empty directory: ${targetRoot}`);
+      process.exit(1);
+    }
+  } catch (error) {
+    if (error.code === "ENOENT") {
+      return;
+    }
+    if (error.code === "ENOTDIR") {
+      console.error(`Refusing to redact into non-directory path: ${targetRoot}`);
+      process.exit(1);
+    }
+    throw error;
+  }
+}
+
+async function writeRedactedPackageScaffold(targetRoot) {
+  await mkdir(resolve(targetRoot, "data", "jsonl"), { recursive: true });
+  await mkdir(resolve(targetRoot, "metadata"), { recursive: true });
+  await mkdir(resolve(targetRoot, "receipts"), { recursive: true });
+  await mkdir(resolve(targetRoot, "reports"), { recursive: true });
+  await mkdir(resolve(targetRoot, "signatures"), { recursive: true });
+
+  await writeFile(
+    resolve(targetRoot, "README.md"),
+    [
+      "# OD4A Redacted Package",
+      "",
+      "This package was generated locally by `od4a redact`.",
+      "The canonical JSONL has raw text and tool command strings removed or replaced.",
+      "It is not a publication action and still requires consent, validation, and release review before sharing.",
+      "",
+    ].join("\n"),
+  );
+
+  for (const relativePath of [
+    ["metadata", ".gitkeep"],
+    ["receipts", ".gitkeep"],
+    ["signatures", ".gitkeep"],
+  ]) {
+    await writeFile(resolve(targetRoot, ...relativePath), "");
+  }
+}
+
+async function redactPackage(sourceDir, outputDir) {
+  const sourceRoot = resolve(process.cwd(), sourceDir);
+  const targetRoot = resolve(process.cwd(), outputDir);
+
+  if (isSameOrNestedPath(sourceRoot, targetRoot)) {
+    console.error("Refusing to write a redacted package inside the source package directory.");
+    process.exit(1);
+  }
+
+  await assertEmptyOrMissingRedactionDirectory(targetRoot);
+
+  const { events } = await readCanonicalEvents(sourceRoot);
+  const inputAnalysis = await analyzePackage(sourceRoot);
+  const stats = createRedactionStats();
+  const redactedEvents = events.map((event) => redactEventRecord(event, stats));
+
+  await writeRedactedPackageScaffold(targetRoot);
+  const targetEventsPath = resolve(targetRoot, "data", "jsonl", "events.jsonl");
+  await writeFile(targetEventsPath, `${redactedEvents.map((event) => JSON.stringify(event)).join("\n")}\n`);
+
+  const outputAnalysis = await analyzePackage(targetRoot);
+  const report = buildTransformRedactionReport({ inputAnalysis, outputAnalysis, stats });
+  const reportPath = resolve(targetRoot, "reports", "redaction-report.json");
+  await writeFile(reportPath, `${JSON.stringify(report, null, 2)}\n`);
+
+  console.log(`Wrote redacted package to ${targetRoot}`);
+  console.log(`Records: ${redactedEvents.length}`);
+  console.log(`Redacted fields: ${stats.redactedFields}`);
+  console.log(`Remaining findings: ${outputAnalysis.findings.length}`);
+  console.log(`Decision: ${report.decision}`);
+  console.log("Raw text/command fields redacted (deterministic; not an anonymity guarantee)");
+
+  if (report.decision === "blocked") {
+    console.error("Redaction output still contains high-risk deterministic findings.");
     process.exit(2);
   }
 }
@@ -2530,6 +2866,7 @@ Usage:
   od4a import-codex-hook <hook-jsonl> [package-dir]
   od4a import-claude-code-hook <hook-jsonl> [package-dir]
   od4a export [package-dir] [output-jsonl]
+  od4a redact <source-package-dir> <output-package-dir>
   od4a manifest [package-dir]
   od4a dataset-card [package-dir] [output-md]
   od4a hf-sample [package-dir] [output-dir]
@@ -2552,7 +2889,7 @@ Usage:
 
 Current commands are intentionally narrow. The initial CLI only performs local
 package scaffolding, JSONL import/export, first adapter normalization, risk
-scanning, redaction reporting, preview summaries, fail-closed package
+scanning, redacted package export, redaction reporting, preview summaries, fail-closed package
 validation, local manifest and dataset-card generation, draft consent receipt
 generation, consent validation, withdrawal records, local Hugging Face sample
 materialization, explicit public Hugging Face dataset publishing, raw-text-free
@@ -2594,6 +2931,13 @@ switch (command) {
     break;
   case "export":
     await exportJsonl(args[1] ?? ".", args[2]);
+    break;
+  case "redact":
+    if (args.length < 3) {
+      console.error("Usage: od4a redact <source-package-dir> <output-package-dir>");
+      process.exit(1);
+    }
+    await redactPackage(args[1], args[2]);
     break;
   case "manifest":
     await writePackageManifest(args[1] ?? ".");

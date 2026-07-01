@@ -16,6 +16,7 @@ local validation, packaging, consent, risk review, and first adapter surfaces.
 - `od4a import-codex-hook <hook-jsonl> [package-dir]`
 - `od4a import-claude-code-hook <hook-jsonl> [package-dir]`
 - `od4a export [package-dir] [output-jsonl]`
+- `od4a redact <source-package-dir> <output-package-dir>`
 - `od4a manifest [package-dir]`
 - `od4a dataset-card [package-dir] [output-md]`
 - `od4a hf-sample [package-dir] [output-dir]`
@@ -60,11 +61,25 @@ local validation, packaging, consent, risk review, and first adapter surfaces.
   and tool input file paths, writes local-review events, and does not call
   external services or inspect private Claude Code storage.
 - `export` copies the canonical JSONL file back out to stdout or a local file.
+- `redact` creates a new local package from a source package without mutating
+  the source. It refuses non-empty output directories, writes a fresh package
+  scaffold, reads `data/jsonl/events.jsonl`, removes or replaces raw message
+  text, prompt-like fields, tool command strings, and deterministic risk
+  matches, sets redacted records to `public_safe_redacted`, marks them as
+  `raw_data_capable: false`, writes `reports/redaction-report.json`, and rescans
+  the output. It exits with status `2` if high-risk deterministic findings
+  remain. Existing event-level `risk` blocks are preserved as pre-redaction
+  provenance; use the redaction report and output scan for post-redaction
+  deterministic findings. Command output, reports, and generated metadata
+  contain detector classes, hashes, counts, and decisions, not raw matched
+  values.
 - `manifest` writes `metadata/manifest.json` for local review. It computes
   file checksums, byte counts, JSONL row counts, source adapter metadata when
   present in OD4A events, consent and redaction report references, and local
-  validation status. Generated manifests default to `local_review`, mark the
-  canonical JSONL file as containing raw data, and are not publication approval.
+  validation status. Generated manifests default to `local_review`, mark raw
+  imported canonical JSONL as containing raw data, and mark `od4a redact`
+  outputs as `contains_raw_data: false` when every record declares
+  `raw_data_capable: false`. They are not publication approval.
 - `dataset-card` writes `metadata/dataset-card.md` from the package manifest.
   It summarizes package metadata, file checksums, source adapters, consent and
   redaction references, license/access terms, and safety notes without rendering
@@ -127,5 +142,5 @@ local validation, packaging, consent, risk review, and first adapter surfaces.
   service, and only after the package passes the public-release gates, a user
   supplies a Hugging Face token, and the user passes `--yes`.
 - All output should remain free of raw donated data.
-- Future commands such as `redact`, `package`, and Parquet writing will build on
-  the same local-first contract.
+- Future commands such as public package preparation, controlled sharing, and
+  Parquet writing will build on the same local-first contract.

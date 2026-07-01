@@ -13,6 +13,9 @@ narratives.
   package gates, an active consent receipt, and a user-supplied token.
 - No public raw transcripts.
 - Local redaction and preview before upload.
+- `od4a redact` is a local package transform only. It removes or replaces raw
+  text and tool command strings, but it does not make a legal anonymity claim
+  and does not authorize publication by itself.
 - Redacted data is risk-reduced, not automatically anonymous.
 - Pseudonymized data remains personal data when re-identification is reasonably
   possible.

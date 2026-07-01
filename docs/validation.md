@@ -53,6 +53,11 @@ validation scripts use only the Node.js standard library.
 - Local derived table schema sidecars must declare `raw_data_included: false`
   and describe derived metric columns such as text counts and tool-command
   presence without storing raw values.
+- Local redaction must refuse non-empty output directories, leave the source
+  package unchanged, remove raw text/tool command strings and deterministic risk
+  matches from output JSONL, write only raw-value-free reports and command
+  output, mark redacted JSONL as non-raw-capable for later manifests, and fail
+  closed if high-risk deterministic findings remain.
 - OpenAI API app-log, Codex hook, and Claude Code hook adapter imports must keep
   passing against checked-in synthetic JSONL fixtures, including privacy canaries
   that prove private transcript paths, environment values, working directories,

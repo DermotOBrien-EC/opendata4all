@@ -29,10 +29,21 @@ od4a-package/
 
 Raw data is not included in publishable packages by default.
 
+`od4a redact <source-package-dir> <output-package-dir>` creates a new local
+package with redacted canonical JSONL and does not mutate the source package. It
+refuses non-empty output directories, removes or replaces raw text-like fields
+and tool command strings, writes a redaction report, marks redacted records as
+not raw-data-capable, and fails closed if high-risk deterministic findings
+remain in the output. The result is still a local package; public release needs
+separate manifest, consent, validation, and publication gates. Event-level
+`risk` blocks remain pre-redaction provenance; the redaction report and output
+scan are the post-redaction deterministic risk evidence.
+
 `od4a manifest` can generate a local-review `metadata/manifest.json` with
 checksums, byte counts, row counts, adapter metadata, and validation status. It
-marks canonical JSONL as raw local-review data and does not create a signed,
-publishable release manifest.
+marks raw imported canonical JSONL as raw local-review data, recognizes
+`od4a redact` output records that explicitly declare `raw_data_capable: false`,
+and does not create a signed, publishable release manifest.
 
 `od4a dataset-card` can generate a local `metadata/dataset-card.md` from the
 manifest. The generated card summarizes metadata, consent and redaction

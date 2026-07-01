@@ -188,7 +188,23 @@
       }
     },
     "data": {
-      "type": "object"
+      "type": "object",
+      "properties": {
+        "content_release_level": {
+          "enum": [
+            "raw_local_review",
+            "redacted_text",
+            "public_safe_redacted",
+            "controlled_research_summary"
+          ],
+          "description": "Release-readiness marker for event content. `public_safe_redacted` is produced by od4a redact for records whose raw text/tool command fields were removed or replaced."
+        },
+        "raw_data_capable": {
+          "type": "boolean",
+          "description": "False when the event data is not intended to carry raw transcript text or tool command strings."
+        }
+      },
+      "additionalProperties": true
     },
     "extensions": {
       "type": "object"

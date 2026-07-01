@@ -67,8 +67,8 @@ research queries.
 - [Governance](GOVERNANCE.md)
 - [Security](SECURITY.md)
 
-The `od4a` CLI currently supports local package, validation, consent, risk
-review, and first adapter commands:
+The `od4a` CLI currently supports local package, redaction, validation, consent,
+risk review, and first adapter commands:
 
 ```bash
 od4a init od4a-package
@@ -90,6 +90,7 @@ od4a consent-draft od4a-package
 od4a validate-consent od4a-package/receipts/consent-draft.json od4a-package
 od4a withdraw-consent od4a-package/receipts/active-consent.json
 od4a export od4a-package
+od4a redact od4a-package od4a-redacted-package
 od4a validate
 od4a inspect examples/minimal-package
 ```
