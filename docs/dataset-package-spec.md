@@ -47,6 +47,18 @@ files, files that omit an explicit `contains_raw_data: false`, failed
 validation, stale file checksums, non-active consent, or non-publishable
 redaction reports. It is not an upload or publication command.
 
+`od4a publish-hf` uses the same public-safe gates, then publishes the generated
+Hugging Face dataset layout to a public dataset repository only when the user
+passes `--yes` and provides `HF_TOKEN` or `HUGGINGFACE_TOKEN` in the environment.
+Upload Git commands disable configured credential helpers so the token is not
+persisted by Git.
+`--dry-run` performs the validation and reports the target repository without
+creating or uploading anything. Existing target repositories must not contain
+tracked files outside the generated OD4A package set, so stale or raw files are
+not silently left public. The command is intentionally limited to
+`public_release` packages; controlled-research packages should use a controlled
+access workflow instead of public Hugging Face publication.
+
 `od4a derive-tables` can generate a local `data/tables/events.jsonl` projection
 and `data/tables/events.schema.json` sidecar from canonical OD4A JSONL. The
 derived table keeps event metadata, source, actor, consent, risk, data-kind,

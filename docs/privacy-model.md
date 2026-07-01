@@ -9,6 +9,8 @@ narratives.
 
 - No hidden capture.
 - No automatic upload.
+- Public Hugging Face publishing requires an explicit command, public-release
+  package gates, an active consent receipt, and a user-supplied token.
 - No public raw transcripts.
 - Local redaction and preview before upload.
 - Redacted data is risk-reduced, not automatically anonymous.

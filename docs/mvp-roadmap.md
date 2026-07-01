@@ -48,6 +48,7 @@
 - Release manifests and checksums.
 - Dataset card generation.
 - HF-compatible public-safe sample package.
+- Explicit public Hugging Face publish command.
 - Controlled-access policy templates.
 
 ## Deferrals

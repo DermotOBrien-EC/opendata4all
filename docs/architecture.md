@@ -15,7 +15,7 @@ adapter
   -> preview package
   -> record consent receipt
   -> build release package
-  -> optional controlled upload
+  -> optional explicit public Hugging Face publish or controlled upload
 ```
 
 ## Canonical Data Model
@@ -49,7 +49,7 @@ of truth.
 - Redacted artifact to preview.
 - Previewed artifact to consent receipt.
 - Consented package to upload queue.
-- Upload queue to controlled access or publication system.
+- Upload queue to Hugging Face public dataset publication, controlled access, or another publication system.
 
 Each boundary should produce audit metadata: software version, policy version,
 input and output hashes, detector versions, user decision, and release tier.

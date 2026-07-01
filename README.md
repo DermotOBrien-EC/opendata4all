@@ -80,6 +80,8 @@ od4a manifest od4a-package
 od4a dataset-card od4a-package
 od4a derive-tables od4a-package
 od4a hf-sample examples/minimal-package ./hf-sample
+od4a publish-hf examples/minimal-package --repo your-hf-name/od4a-example --dry-run
+od4a publish-hf examples/minimal-package --repo your-hf-name/od4a-example --yes
 od4a scan od4a-package
 od4a report od4a-package
 od4a preview od4a-package

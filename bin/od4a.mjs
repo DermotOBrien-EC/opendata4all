@@ -1,9 +1,10 @@
 #!/usr/bin/env node
-import { copyFile, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
+import { chmod, copyFile, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
+import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
-import { basename, dirname, isAbsolute, relative, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, "..");
@@ -1349,29 +1350,17 @@ async function copyPackageFile(packageRoot, targetRoot, relativePath) {
   await copyFile(sourcePath, targetPath);
 }
 
-async function writeHfSample(packageDir, outputDir) {
-  const packageRoot = resolve(process.cwd(), packageDir);
-  const targetRoot = resolve(process.cwd(), outputDir);
-  const { manifest, manifestHash } = await readPackageManifest(packageDir);
-  const issues = await validateHfSamplePackage(packageRoot, manifest, manifestHash);
-
-  if (issues.length > 0) {
-    console.log("Hugging Face sample validation: failed");
-    console.log(`Issues: ${issues.length}`);
-    for (const issue of issues) {
-      console.log(`- ${issue}`);
-    }
-    process.exit(1);
+async function materializeHfDatasetDirectory(packageRoot, targetRoot, manifest, { requireEmpty } = { requireEmpty: true }) {
+  if (requireEmpty) {
+    await assertEmptyOrMissingDirectory(targetRoot);
   }
-
-  await assertEmptyOrMissingDirectory(targetRoot);
   await mkdir(targetRoot, { recursive: true });
 
   const copiedPaths = new Set([
     "metadata/manifest.json",
-    ...manifest.files.map((file) => file.path),
-    ...manifest.consent_receipts,
-    ...manifest.redaction_reports,
+    ...(Array.isArray(manifest.files) ? manifest.files.map((file) => file.path) : []),
+    ...(Array.isArray(manifest.consent_receipts) ? manifest.consent_receipts : []),
+    ...(Array.isArray(manifest.redaction_reports) ? manifest.redaction_reports : []),
   ]);
 
   for (const relativePath of [...copiedPaths].sort()) {
@@ -1380,9 +1369,352 @@ async function writeHfSample(packageDir, outputDir) {
 
   await writeFile(resolve(targetRoot, "README.md"), buildHfDatasetReadme(manifest));
 
+  return copiedPaths;
+}
+
+function printHfIssues(kind, issues) {
+  console.log(`${kind}: failed`);
+  console.log(`Issues: ${issues.length}`);
+  for (const issue of issues) {
+    console.log(`- ${issue}`);
+  }
+}
+
+async function writeHfSample(packageDir, outputDir) {
+  const packageRoot = resolve(process.cwd(), packageDir);
+  const targetRoot = resolve(process.cwd(), outputDir);
+  const { manifest, manifestHash } = await readPackageManifest(packageDir);
+  const issues = await validateHfSamplePackage(packageRoot, manifest, manifestHash);
+
+  if (issues.length > 0) {
+    printHfIssues("Hugging Face sample validation", issues);
+    process.exit(1);
+  }
+
+  const copiedPaths = await materializeHfDatasetDirectory(packageRoot, targetRoot, manifest, { requireEmpty: true });
+
   console.log(`Wrote Hugging Face sample to ${targetRoot}`);
   console.log(`Release tier: ${manifest.release_tier}`);
   console.log(`Files copied: ${copiedPaths.size}`);
+}
+
+function printPublishHfUsage() {
+  console.error("Usage: od4a publish-hf [package-dir] --repo <namespace/dataset> [--branch <name>] [--dry-run] [--yes]");
+}
+
+function requireOptionValue(option, index, values) {
+  if (index + 1 >= values.length || values[index + 1].startsWith("--")) {
+    console.error(`${option} requires a value`);
+    printPublishHfUsage();
+    process.exit(1);
+  }
+  return values[index + 1];
+}
+
+function parsePublishHfArgs(values) {
+  const options = {
+    packageDir: ".",
+    repo: undefined,
+    branch: "main",
+    dryRun: false,
+    yes: false,
+  };
+
+  let index = 0;
+  if (values[index] && !values[index].startsWith("--")) {
+    options.packageDir = values[index];
+    index += 1;
+  }
+
+  while (index < values.length) {
+    const value = values[index];
+    switch (value) {
+      case "--repo":
+        options.repo = requireOptionValue(value, index, values);
+        index += 2;
+        break;
+      case "--branch":
+        options.branch = requireOptionValue(value, index, values);
+        index += 2;
+        break;
+      case "--dry-run":
+        options.dryRun = true;
+        index += 1;
+        break;
+      case "--yes":
+        options.yes = true;
+        index += 1;
+        break;
+      case "--private":
+        console.error("publish-hf only supports public Hugging Face dataset uploads. Use controlled-access workflows for non-public data.");
+        process.exit(1);
+        break;
+      default:
+        console.error(`Unknown publish-hf option: ${value}`);
+        printPublishHfUsage();
+        process.exit(1);
+    }
+  }
+
+  if (!options.repo) {
+    console.error("publish-hf requires --repo <namespace/dataset>");
+    printPublishHfUsage();
+    process.exit(1);
+  }
+
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]*\/[A-Za-z0-9][A-Za-z0-9._-]*$/.test(options.repo)) {
+    console.error("publish-hf --repo must look like <namespace>/<dataset> and contain only letters, numbers, '.', '_', and '-'");
+    process.exit(1);
+  }
+
+  if (!/^[A-Za-z0-9._/-]+$/.test(options.branch) || options.branch.includes("..")) {
+    console.error("publish-hf --branch contains unsupported characters");
+    process.exit(1);
+  }
+
+  return options;
+}
+
+function hfDatasetUrl(repoId) {
+  return `https://huggingface.co/datasets/${repoId}`;
+}
+
+function hfTokenFromEnv() {
+  return process.env.HF_TOKEN || process.env.HUGGINGFACE_TOKEN || "";
+}
+
+function runProcess(commandName, commandArgs, options = {}) {
+  const result = spawnSync(commandName, commandArgs, {
+    cwd: options.cwd ?? process.cwd(),
+    env: options.env ?? process.env,
+    encoding: "utf8",
+  });
+
+  if (result.error) {
+    console.error(result.error.message);
+    process.exit(1);
+  }
+
+  if (result.status !== 0) {
+    if (result.stderr.trim()) {
+      console.error(result.stderr.trim());
+    } else if (result.stdout.trim()) {
+      console.error(result.stdout.trim());
+    } else {
+      console.error(`${commandName} ${commandArgs.join(" ")} failed`);
+    }
+    process.exit(result.status ?? 1);
+  }
+
+  return result;
+}
+
+function gitArgs(args) {
+  return ["-c", "credential.helper=", ...args];
+}
+
+function trackedGitFiles(repoRoot, env) {
+  const output = runProcess("git", gitArgs(["ls-files", "-z"]), { cwd: repoRoot, env }).stdout;
+  return output.split("\0").filter((path) => path.length > 0).sort();
+}
+
+function assertNoUnexpectedHfFiles(repoRoot, allowedPaths, env) {
+  const allowed = new Set([".gitattributes", "README.md", ...allowedPaths]);
+  const unexpected = trackedGitFiles(repoRoot, env).filter((path) => !allowed.has(path));
+
+  if (unexpected.length === 0) {
+    return;
+  }
+
+  console.error("Refusing to publish into a Hugging Face dataset repo with tracked files outside the OD4A public package set.");
+  console.error("Create an empty dataset repo, remove the extra files manually, or publish to a different repo.");
+  console.error("Unexpected tracked files:");
+  for (const path of unexpected.slice(0, 25)) {
+    console.error(`- ${path}`);
+  }
+  if (unexpected.length > 25) {
+    console.error(`- ... ${unexpected.length - 25} more`);
+  }
+  process.exit(1);
+}
+
+async function responseText(response) {
+  try {
+    return await response.text();
+  } catch {
+    return "";
+  }
+}
+
+async function authenticatedHfName(token) {
+  const response = await fetch("https://huggingface.co/api/whoami-v2", {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  if (!response.ok) {
+    return "";
+  }
+
+  try {
+    const profile = await response.json();
+    return typeof profile.name === "string" ? profile.name : "";
+  } catch {
+    return "";
+  }
+}
+
+async function assertPublicHfDatasetRepo(repoId, token) {
+  const response = await fetch(`https://huggingface.co/api/datasets/${repoId}`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  if (!response.ok) {
+    const text = await responseText(response);
+    console.error(`Unable to verify Hugging Face dataset repo ${repoId}: HTTP ${response.status}`);
+    if (text.trim()) {
+      console.error(text.trim().slice(0, 1000));
+    }
+    process.exit(1);
+  }
+
+  const info = await response.json();
+  if (info.private === true || (info.gated !== undefined && info.gated !== false)) {
+    console.error(`Refusing to publish: Hugging Face dataset repo ${repoId} is not fully public.`);
+    process.exit(1);
+  }
+}
+
+async function createPublicHfDatasetRepo(repoId, token) {
+  const [namespace, name] = repoId.split("/");
+  const authenticatedName = await authenticatedHfName(token);
+  const body = {
+    name,
+    type: "dataset",
+    private: false,
+  };
+
+  if (authenticatedName !== namespace) {
+    body.organization = namespace;
+  }
+
+  const response = await fetch("https://huggingface.co/api/repos/create", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (response.status !== 409 && !response.ok) {
+    const text = await responseText(response);
+    console.error(`Unable to create or access Hugging Face dataset repo ${repoId}: HTTP ${response.status}`);
+    if (text.trim()) {
+      console.error(text.trim().slice(0, 1000));
+    }
+    process.exit(1);
+  }
+
+  await assertPublicHfDatasetRepo(repoId, token);
+}
+
+async function writeGitAskpassScript(directory) {
+  const scriptPath = resolve(directory, "hf-git-askpass.sh");
+  await writeFile(
+    scriptPath,
+    [
+      "#!/bin/sh",
+      "case \"$1\" in",
+      "  *Username*) printf '%s\\n' \"${HF_USERNAME:-__token__}\" ;;",
+      "  *Password*) printf '%s\\n' \"${HF_TOKEN:-$HUGGINGFACE_TOKEN}\" ;;",
+      "  *) printf '\\n' ;;",
+      "esac",
+      "",
+    ].join("\n"),
+  );
+  await chmod(scriptPath, 0o700);
+  return scriptPath;
+}
+
+async function publishHf(rawArgs) {
+  const options = parsePublishHfArgs(rawArgs);
+  const packageRoot = resolve(process.cwd(), options.packageDir);
+  const { manifest, manifestHash } = await readPackageManifest(options.packageDir);
+  const issues = await validateHfSamplePackage(packageRoot, manifest, manifestHash);
+
+  if (issues.length > 0) {
+    printHfIssues("Hugging Face public publish validation", issues);
+    process.exit(1);
+  }
+
+  const copiedPaths = new Set([
+    "metadata/manifest.json",
+    ...(Array.isArray(manifest.files) ? manifest.files.map((file) => file.path) : []),
+    ...(Array.isArray(manifest.consent_receipts) ? manifest.consent_receipts : []),
+    ...(Array.isArray(manifest.redaction_reports) ? manifest.redaction_reports : []),
+  ]);
+
+  console.log("Hugging Face public publish: ready");
+  console.log(`Repo: ${hfDatasetUrl(options.repo)}`);
+  console.log(`Release tier: ${manifest.release_tier}`);
+  console.log(`Files to upload: ${copiedPaths.size + 1}`);
+  console.log("Access: public");
+
+  if (options.dryRun) {
+    console.log("Dry run: no repository created, no files uploaded.");
+    return;
+  }
+
+  if (!options.yes) {
+    console.error("Refusing to upload without --yes. Re-run with --yes after reviewing the package and consent receipt.");
+    process.exit(1);
+  }
+
+  const token = hfTokenFromEnv();
+  if (!token) {
+    console.error("HF_TOKEN or HUGGINGFACE_TOKEN is required for publish-hf uploads. Tokens are read from the environment and never stored in the package.");
+    process.exit(1);
+  }
+
+  await createPublicHfDatasetRepo(options.repo, token);
+
+  const tempRoot = await mkdtemp(join(tmpdir(), "od4a-hf-publish-"));
+  try {
+    const repoRoot = resolve(tempRoot, "repo");
+    const askpassPath = await writeGitAskpassScript(tempRoot);
+    const gitEnv = {
+      ...process.env,
+      HF_TOKEN: token,
+      GIT_ASKPASS: askpassPath,
+      GIT_TERMINAL_PROMPT: "0",
+    };
+    const remoteUrl = hfDatasetUrl(options.repo);
+
+    runProcess("git", gitArgs(["clone", remoteUrl, repoRoot]), { env: gitEnv });
+    assertNoUnexpectedHfFiles(repoRoot, copiedPaths, gitEnv);
+    await materializeHfDatasetDirectory(packageRoot, repoRoot, manifest, { requireEmpty: false });
+
+    const statusBeforeAdd = runProcess("git", gitArgs(["status", "--porcelain"]), { cwd: repoRoot, env: gitEnv }).stdout.trim();
+    if (!statusBeforeAdd) {
+      console.log("No changes to publish; Hugging Face dataset is already up to date.");
+      return;
+    }
+
+    runProcess("git", gitArgs(["add", "README.md", ...[...copiedPaths].sort()]), { cwd: repoRoot, env: gitEnv });
+    runProcess("git", gitArgs(["config", "user.name", "opendata4all publisher"]), { cwd: repoRoot, env: gitEnv });
+    runProcess("git", gitArgs(["config", "user.email", "opendata4all@example.invalid"]), { cwd: repoRoot, env: gitEnv });
+    runProcess("git", gitArgs(["commit", "-m", `Publish ${manifest.package_id ?? "OD4A dataset"}`]), { cwd: repoRoot, env: gitEnv });
+    runProcess("git", gitArgs(["push", "origin", `HEAD:${options.branch}`]), { cwd: repoRoot, env: gitEnv });
+
+    console.log(`Published public Hugging Face dataset: ${remoteUrl}`);
+    console.log(`Branch: ${options.branch}`);
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true });
+  }
 }
 
 async function readCanonicalEvents(packageDir) {
@@ -2201,6 +2533,7 @@ Usage:
   od4a manifest [package-dir]
   od4a dataset-card [package-dir] [output-md]
   od4a hf-sample [package-dir] [output-dir]
+  od4a publish-hf [package-dir] --repo <namespace/dataset> [--branch <name>] [--dry-run] [--yes]
   od4a derive-tables [package-dir] [output-dir]
   od4a scan [package-dir]
   od4a report [package-dir] [output-json]
@@ -2222,8 +2555,8 @@ package scaffolding, JSONL import/export, first adapter normalization, risk
 scanning, redaction reporting, preview summaries, fail-closed package
 validation, local manifest and dataset-card generation, draft consent receipt
 generation, consent validation, withdrawal records, local Hugging Face sample
-materialization, raw-text-free derived table generation, and manifest
-inspection.
+materialization, explicit public Hugging Face dataset publishing, raw-text-free
+derived table generation, and manifest inspection.
 `);
 }
 
@@ -2270,6 +2603,9 @@ switch (command) {
     break;
   case "hf-sample":
     await writeHfSample(args[1] ?? ".", args[2] ?? "hf-sample");
+    break;
+  case "publish-hf":
+    await publishHf(args.slice(1));
     break;
   case "derive-tables":
     await writeDerivedTables(args[1] ?? ".", args[2]);

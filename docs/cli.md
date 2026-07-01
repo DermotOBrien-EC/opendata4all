@@ -19,6 +19,7 @@ local validation, packaging, consent, risk review, and first adapter surfaces.
 - `od4a manifest [package-dir]`
 - `od4a dataset-card [package-dir] [output-md]`
 - `od4a hf-sample [package-dir] [output-dir]`
+- `od4a publish-hf [package-dir] --repo <namespace/dataset> [--branch <name>] [--dry-run] [--yes]`
 - `od4a derive-tables [package-dir] [output-dir]`
 - `od4a scan [package-dir]`
 - `od4a report [package-dir] [output-json]`
@@ -76,6 +77,19 @@ local validation, packaging, consent, risk review, and first adapter surfaces.
   non-active-consent, and non-publishable-redaction packages. Every copied file
   must declare `contains_raw_data: false`. It does not upload, publish, or
   contact Hugging Face.
+- `publish-hf` publishes a public Hugging Face dataset through an explicit user
+  action. It uses the same fail-closed package gates as `hf-sample`, requires a
+  `public_release` package, active consent, publishable redaction reports,
+  current checksums, and `contains_raw_data: false` for every copied file. Use
+  `--dry-run` to verify readiness without network access. Real uploads require
+  `--yes` plus `HF_TOKEN` or `HUGGINGFACE_TOKEN` in the environment; the token is
+  never written into the package, and upload Git commands disable configured
+  credential helpers so the token is not persisted by Git. The command creates or opens
+  `https://huggingface.co/datasets/<namespace>/<dataset>`, copies only the
+  public-safe package artifacts and generated dataset card, commits them with
+  git, and pushes to the selected branch. If the target dataset repo already
+  contains tracked files outside the generated OD4A package set, the command
+  fails instead of leaving stale or raw files public.
 - `derive-tables` writes a local `data/tables/events.jsonl` derived event table
   and adjacent `events.schema.json` sidecar, or equivalent files in a
   caller-supplied output directory. The table contains stable event metadata,
@@ -109,7 +123,9 @@ local validation, packaging, consent, risk review, and first adapter surfaces.
 - `inspect` reads an OD4A package manifest from the current directory or a
   relative package directory and prints a summary without opening any network
   connection.
-- The initial CLI does not publish, upload, or connect to external services.
+- The CLI does not upload automatically. Only `publish-hf` contacts an external
+  service, and only after the package passes the public-release gates, a user
+  supplies a Hugging Face token, and the user passes `--yes`.
 - All output should remain free of raw donated data.
 - Future commands such as `redact`, `package`, and Parquet writing will build on
   the same local-first contract.

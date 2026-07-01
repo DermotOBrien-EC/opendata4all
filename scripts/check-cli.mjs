@@ -169,6 +169,7 @@ async function main() {
   const blockedHfSampleDir = join(workDir, "blocked-hf-sample");
   const missingRawFlagPackageDir = join(workDir, "missing-raw-flag-package");
   const missingRawFlagHfSampleDir = join(workDir, "missing-raw-flag-hf-sample");
+  const malformedPublishPackageDir = join(workDir, "malformed-publish-package");
   const codexPackageDir = join(workDir, "codex-package");
   const codexDerivedTablesDir = join(workDir, "codex-derived-tables");
   const claudePackageDir = join(workDir, "claude-package");
@@ -192,6 +193,7 @@ async function main() {
     "hf-sample",
     "inspect",
     "preview",
+    "publish-hf",
     "report",
     "scan",
     "validate",
@@ -428,6 +430,26 @@ async function main() {
     assert(!blockedHfSample.stdout.includes(rawValue), "hf-sample rejection output must not echo raw event text");
   }
 
+  const blockedPublishHf = runCli([
+    "publish-hf",
+    openAiPackageDir,
+    "--repo",
+    "opendata4all/local-review-blocked",
+    "--dry-run",
+  ]);
+  assert(blockedPublishHf.status === 1, "publish-hf should reject local-review packages before any upload");
+  assert(
+    blockedPublishHf.stdout.includes("release_tier_must_be_public_release"),
+    "publish-hf should explain release-tier failures",
+  );
+  for (const rawValue of [
+    "Summarize consent requirements.",
+    "Use explicit, revocable consent.",
+    "Private app internals and undocumented storage.",
+  ]) {
+    assert(!blockedPublishHf.stdout.includes(rawValue), "publish-hf rejection output must not echo raw event text");
+  }
+
   const hfSample = runCli(["hf-sample", "examples/minimal-package", hfSampleDir]);
   assert(hfSample.status === 0, "hf-sample should materialize public-safe examples");
   assert(hfSample.stdout.includes("Release tier: public_release"), "hf-sample should summarize release tier");
@@ -447,6 +469,64 @@ async function main() {
   await readFile(join(hfSampleDir, "metadata", "manifest.json"), "utf8");
   await readFile(join(hfSampleDir, "receipts", "consent-001.json"), "utf8");
   await readFile(join(hfSampleDir, "reports", "redaction-report.json"), "utf8");
+
+  const publishHfDryRun = runCli([
+    "publish-hf",
+    "examples/minimal-package",
+    "--repo",
+    "opendata4all/example-minimal-public",
+    "--dry-run",
+  ]);
+  assert(publishHfDryRun.status === 0, "publish-hf dry-run should accept public-safe examples without a token");
+  assert(
+    publishHfDryRun.stdout.includes("Hugging Face public publish: ready"),
+    "publish-hf dry-run should summarize readiness",
+  );
+  assert(
+    publishHfDryRun.stdout.includes("https://huggingface.co/datasets/opendata4all/example-minimal-public"),
+    "publish-hf dry-run should print the target dataset URL",
+  );
+  assert(publishHfDryRun.stdout.includes("Dry run:"), "publish-hf dry-run must not upload");
+  assert(
+    !publishHfDryRun.stdout.includes("Synthetic prompt for schema validation."),
+    "publish-hf dry-run output must not include raw event text",
+  );
+
+  const publishHfWithoutYes = runCli([
+    "publish-hf",
+    "examples/minimal-package",
+    "--repo",
+    "opendata4all/example-minimal-public",
+  ]);
+  assert(publishHfWithoutYes.status === 1, "publish-hf should require explicit --yes before uploads");
+  assert(
+    publishHfWithoutYes.stderr.includes("Refusing to upload without --yes"),
+    "publish-hf should explain the explicit confirmation requirement",
+  );
+
+  await mkdir(join(malformedPublishPackageDir, "metadata"), { recursive: true });
+  await writeFile(
+    join(malformedPublishPackageDir, "metadata", "manifest.json"),
+    `${JSON.stringify({
+      schema_version: "0.1.0",
+      package_id: "od4a-malformed-publish-check",
+      version: "0.1.0",
+      release_tier: "public_release",
+      validation: { status: "passed" },
+    })}\n`,
+  );
+  const malformedPublish = runCli([
+    "publish-hf",
+    malformedPublishPackageDir,
+    "--repo",
+    "opendata4all/malformed-publish-check",
+    "--dry-run",
+  ]);
+  assert(malformedPublish.status === 1, "publish-hf should fail closed on malformed manifests");
+  assert(
+    malformedPublish.stdout.includes("manifest_files_required"),
+    "publish-hf should report validation issues for malformed manifests instead of throwing",
+  );
 
   await mkdir(join(missingRawFlagPackageDir, "data", "jsonl"), { recursive: true });
   await mkdir(join(missingRawFlagPackageDir, "metadata"), { recursive: true });

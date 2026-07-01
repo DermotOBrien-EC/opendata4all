@@ -40,10 +40,13 @@ validation scripts use only the Node.js standard library.
   receipts and redaction reports.
 - Schema definitions and checked-in example package artifacts must use the
   current supported `schema_version` value, `0.1.0`.
-- Local Hugging Face sample generation must fail closed unless the package is a
-  public release with passed validation, active consent, publishable redaction
-  reports, current checksums, and `contains_raw_data: false` declared for every
-  copied file.
+- Local Hugging Face sample generation and public Hugging Face publishing must
+  fail closed unless the package is a public release with passed validation,
+  active consent, publishable redaction reports, current checksums, and
+  `contains_raw_data: false` declared for every copied file. Public publishing
+  additionally requires an explicit `--yes` plus a token supplied through the
+  environment; dry-runs must perform the same package gates without network
+  access.
 - Local derived table generation must preserve canonical event row counts while
   excluding raw message text and tool command strings from table and sidecar
   output.
